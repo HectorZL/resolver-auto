@@ -1,0 +1,9 @@
+{
+  "login_url": "https://aulaslenguas.utm.edu.ec:8443/signin",
+  "email": "ssolorzano7975@utm.edu.ec",
+  "password": "2005sandraESMERALDA@",
+  "gemini_api_key": "AIzaSyBokTbgZaT3onJ0HIufhKJKA-j_VEvu4iY",
+  "headless": false,
+  "delay_between_questions": 2,
+  "activities_to_solve": ["writing", "vocabulary", "reading", "grammar", "listening"]
+}
