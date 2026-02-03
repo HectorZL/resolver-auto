@@ -256,6 +256,8 @@ class ExamAgent:
                 return self._solve_image_drag_match(question_text)
             elif question_type == "text_match":
                 return self._solve_text_match(question_text)
+            elif question_type == "inline_choice":
+                return self._solve_inline_choice(question_text)
             elif question_type == "image_with_options":
                 return self._solve_image_with_options(question_text)
             elif question_type == "matching_requirements":
@@ -301,12 +303,21 @@ class ExamAgent:
             draggables = self.browser.page.query_selector_all("[data-rbd-draggable-id]")
             if len(draggables) > 0:
                 return "sentence_ordering"
+
+            # Verificar inline choice (cards con botones de opciones)
+            if "choose the best option" in self._get_question_text().lower():
+                return "inline_choice"
             
             # Verificar si hay drag & drop con imágenes (botones "Waiting answer...")
             waiting_btns = self.browser.page.query_selector_all("button:has-text('Waiting answer')")
             if len(waiting_btns) > 0:
                 h2_text = self._get_question_text().lower()
-                if "match the sentence" in h2_text and "option" in h2_text and not self.browser.page.query_selector("img[alt='Descripción de la imagen']"):
+                is_text_match = (
+                    ("match the sentence" in h2_text and "option" in h2_text) or
+                    ("complete the questions" in h2_text and "verbs" in h2_text) or
+                    ("survey" in h2_text)
+                )
+                if is_text_match and not self.browser.page.query_selector("img[alt='Descripción de la imagen']"):
                     return "text_match"
                 return "image_drag_match"
             
@@ -356,18 +367,37 @@ class ExamAgent:
             if not options:
                 return False
             
+            # Extraer texto de lectura si existe (pasajes, menús, etc.)
+            reading_text = ""
+            try:
+                # Buscar contenedores de texto de lectura
+                text_containers = self.browser.page.query_selector_all(
+                    ".overflow-y-auto, .text-justify, .bg-gray-50 .p-4, .prose, .reading-passage"
+                )
+                for container in text_containers:
+                    text = container.inner_text().strip()
+                    if len(text) > 50:  # Solo textos significativos
+                        reading_text += text + "\n\n"
+            except:
+                pass
+            
             # Verificar si hay imagen
             has_image = self.browser.page.query_selector("img[alt='Descripción de la imagen']") is not None
             
-            if has_image:
-                # Tomar screenshot y analizar con imagen
+            if has_image or reading_text:
+                # Tomar screenshot y analizar con imagen + texto
                 screenshot = self.browser.screenshot()
                 
+                context_text = ""
+                if reading_text:
+                    context_text = f"\n\nTEXTO DE LECTURA:\n{reading_text[:2000]}"
+                
                 prompt = f"""PREGUNTA: {question_text}
+{context_text}
 
 OPCIONES: {options}
 
-Mira la imagen y selecciona la opción correcta.
+Analiza la imagen Y el texto proporcionado. Selecciona la opción correcta.
 Responde SOLO con el número de la opción (0, 1, 2, 3, etc.)"""
                 
                 image_part = {
@@ -387,7 +417,7 @@ Responde SOLO con el número de la opción (0, 1, 2, 3, etc.)"""
                 else:
                     answer_index = 0
             else:
-                # Sin imagen, usar método de solo texto
+                # Sin imagen ni texto, usar método de solo texto
                 result = self.solver.analyze_question_text_only(question_text, options)
                 answer_index = result.get("answer_index", 0)
             
@@ -1098,16 +1128,26 @@ Elige la opción correcta:
                 
             print(f"[INFO] {num_images} imágenes encontradas. {len(zone_labels)} zonas de respuesta.")
             
-            # 3. Obtener opciones disponibles
+            # 3. Obtener opciones disponibles (filtrar ocultas)
             available_options = []
-            option_containers = self.browser.page.query_selector_all(".flex.flex-wrap.gap-2 > div, button span")
+            option_containers = self.browser.page.query_selector_all(
+                ".flex.flex-wrap.gap-2 > div, .options-container button, .flex-wrap button, button.group, div.sticky button"
+            )
             
             for container in option_containers:
-                btn = container.query_selector("button") if container.query_selector("button") else container
+                btn = container if container.evaluate("el => el.tagName === 'BUTTON'") else container.query_selector("button")
                 if btn:
+                    # Verificar que no esté oculto/usado (opacity-0 = ya clickeado)
+                    class_attr = btn.get_attribute("class") or ""
+                    parent_class = container.get_attribute("class") or ""
+                    
+                    if "opacity-0" in class_attr or "pointer-events-none" in class_attr:
+                        continue
+                    if "opacity-0" in parent_class or "pointer-events-none" in parent_class:
+                        continue
+                    
                     text = btn.inner_text().strip()
-                    if text and len(text) > 2 and "Waiting" not in text:
-                        # Evitar duplicados
+                    if text and len(text) > 1 and "Waiting" not in text:
                         if not any(o['text'] == text for o in available_options):
                             available_options.append({"text": text, "element": btn})
             
@@ -1767,25 +1807,26 @@ Responde con una línea por puesto en formato "Puesto: Requisito":"""
             
             # 3. Obtener opciones disponibles
             available_options = []
-            option_containers = self.browser.page.query_selector_all(".flex.flex-wrap.gap-2 > div, button span")
+            # Selectores robustos (igual que en image_drag_match)
+            option_containers = self.browser.page.query_selector_all(
+                ".flex.flex-wrap.gap-2 > div, .options-container button, .flex-wrap button, button.group, div.sticky button"
+            )
             
             for container in option_containers:
-                btn = container.query_selector("button") if container.query_selector("button") else container
-                # En algunos casos el span es hijo directo
-                if not btn and container.evaluate("el => el.tagName === 'BUTTON'"):
-                     btn = container
-                
-                # Si sigue sin encontrarse, buscar padre botón
-                if not btn:
-                     try:
-                        btn = container.query_selector("xpath=ancestor::button")
-                     except:
-                        pass
-
+                btn = container if container.evaluate("el => el.tagName === 'BUTTON'") else container.query_selector("button")
                 if btn:
+                    # Verificar que no esté oculto/usado
+                    class_attr = btn.get_attribute("class") or ""
+                    parent_class = container.get_attribute("class") or ""
+                    
+                    if "opacity-0" in class_attr or "pointer-events-none" in class_attr:
+                        continue
+                    if "opacity-0" in parent_class or "pointer-events-none" in parent_class:
+                        continue
+
                     text = btn.inner_text().strip()
-                    if text and len(text) > 2 and "Waiting" not in text:
-                         # Evitar duplicados? No, aquí necesitamos todos los botones físicos aunque tengan mismo texto
+                    if text and len(text) > 1 and "Waiting" not in text:
+                         # Evitar duplicados físicos (mismo elemento)
                          if not any(o['element'] == btn for o in available_options):
                              available_options.append({"text": text, "element": btn})
 
@@ -1882,6 +1923,123 @@ Respuesta:"""
             print(f"[ERROR] Error en text match: {e}")
             import traceback
             traceback.print_exc()
+            return False
+
+    def _solve_inline_choice(self, question_text: str) -> bool:
+        """
+        Resuelve preguntas donde hay múltiples oraciones/bloques y cada una tiene sus propias opciones.
+        Ejemplo: "CHOOSE THE BEST OPTION: HOLIDAY / VACATION"
+        """
+        try:
+            print("[INFO] Resolviendo pregunta de OPCIÓN EN LÍNEA (Inline Choice)...")
+            
+            # 1. Encontrar los contenedores de pregutas (cards)
+            # Buscamos divs que tengan texto y botones dentro
+            potential_cards = self.browser.page.query_selector_all(".bg-white.rounded-xl, .border.rounded-xl, .shadow-sm")
+            
+            rows_data = []
+            
+            for card in potential_cards:
+                # Verificar si este card tiene botones
+                buttons = card.query_selector_all("button")
+                # Filtramos botones que sean opciones (no el botón de audio ni iconos)
+                option_buttons = [
+                    btn for btn in buttons 
+                    if len(btn.inner_text().strip()) > 1 # Texto significativo
+                    and not btn.query_selector("svg") # No iconos solos
+                    and "Waiting" not in btn.inner_text()
+                ]
+                
+                if len(option_buttons) >= 2:
+                    # Es una tarjeta de pregunta válida
+                    # Extraer el texto de la pregunta (todo el texto del card menos los botones)
+                    full_text = card.inner_text()
+                    for btn in option_buttons:
+                        full_text = full_text.replace(btn.inner_text(), "___") # Reemplazar botón por placeholder
+                    
+                    question_part = full_text.strip().replace("\n", " ")
+                    if len(question_part) < 5: continue # Skip if no text
+                    
+                    options = []
+                    for btn in option_buttons:
+                        options.append({"text": btn.inner_text().strip(), "element": btn})
+                    
+                    rows_data.append({
+                        "question": question_part,
+                        "options": options
+                    })
+            
+            if not rows_data:
+                print("[WARNING] No se encontraron bloques de preguntas inline")
+                return False
+            
+            print(f"[INFO] {len(rows_data)} preguntas encontradas.")
+            
+            # 2. Construir Prompt
+            items_text = ""
+            for i, row in enumerate(rows_data):
+                opts_str = " / ".join([o['text'] for o in row['options']])
+                items_text += f"{i+1}. {row['question']}  OPTIONS: [{opts_str}]\n"
+            
+            prompt = f"""Responde seleccionando la mejor opción para cada oración.
+Contexto General: {question_text}
+
+Preguntas:
+{items_text}
+
+Instrucciones:
+1. Responde SOLO con la opción correcta textual.
+2. Formato: "1. OPCIÓN"
+"""
+            # 3. Consultar a Gemini
+            response = self.solver.model.generate_content(prompt)
+            result = response.text.strip()
+            print(f"[DEBUG] Gemini responde:\n{result}")
+            
+            # 4. Parsear y Clickar
+            import re
+            lines = result.split("\n")
+            clicks = 0
+            
+            for line in lines:
+                match = re.search(r'(\d+)\.\s*(.+)', line)
+                if match:
+                    idx = int(match.group(1)) - 1
+                    answer = match.group(2).strip().upper().replace("´", "'").replace("`", "'")
+                    
+                    if 0 <= idx < len(rows_data):
+                        row = rows_data[idx]
+                        
+                        # Buscar la opción coincidente
+                        best_btn = None
+                        for opt in row['options']:
+                            opt_text = opt['text'].upper()
+                            if opt_text == answer or opt_text in answer or answer in opt_text:
+                                best_btn = opt['element']
+                                break
+                        
+                        if best_btn:
+                            try:
+                                best_btn.click()
+                                print(f"[INFO] P {idx+1} -> Click en '{best_btn.inner_text()}'")
+                                clicks += 1
+                                self.browser.sleep(0.3)
+                            except:
+                                print(f"[WARNING] Falló click en {idx+1}")
+            
+            if clicks > 0:
+                self.browser.sleep(0.5)
+                self._click_check_button()
+                self._click_ok_modal()
+                self.questions_answered += 1
+                print(f"[SUCCESS] Pregunta (Inline Choice) respondida")
+                self.browser.sleep(self.delay)
+                return True
+                
+            return False
+
+        except Exception as e:
+            print(f"[ERROR] Error en inline choice: {e}")
             return False
 
     def run(self):
