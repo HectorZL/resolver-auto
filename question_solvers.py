@@ -197,7 +197,7 @@ class QuestionSolvers:
                             self.browser.page.locator(selector).click(force=True)
                             print(f"[INFO] Click en OK del modal ({selector})")
                             found = True
-                            self.browser.sleep(0.5)
+                            self.browser.sleep(0.1)
                             break
                     except:
                         continue
@@ -217,7 +217,7 @@ class QuestionSolvers:
                 if not found and not still_visible and i > 0:
                      return True
 
-                self.browser.sleep(0.5)
+                self.browser.sleep(0.1)
             
             return False
             
@@ -237,9 +237,9 @@ class QuestionSolvers:
                     yes_btn = self.browser.page.get_by_text("Yes, they do.", exact=False)
                     if yes_btn.count() > 0:
                         yes_btn.first.click()
-                        self.browser.sleep(0.3)
+                        self.browser.sleep(0.1)
                         self._click_check_button()
-                        self.browser.sleep(0.5)
+                        self.browser.sleep(0.1)
                         self._click_ok_modal()
                         print("[SUCCESS] Pregunta contestada via hardcode.")
                         return True
@@ -254,9 +254,9 @@ class QuestionSolvers:
                     designers_btn = self.browser.page.get_by_text("Designers´shop", exact=False)
                     if designers_btn.count() > 0:
                         designers_btn.first.click()
-                        self.browser.sleep(0.3)
+                        self.browser.sleep(0.1)
                         self._click_check_button()
-                        self.browser.sleep(0.5)
+                        self.browser.sleep(0.1)
                         self._click_ok_modal()
                         print("[SUCCESS] Pregunta contestada via hardcode.")
                         return True
@@ -272,9 +272,9 @@ class QuestionSolvers:
                     hurry_btn = self.browser.page.get_by_text("always is a hurry", exact=False)
                     if hurry_btn.count() > 0:
                         hurry_btn.first.click()
-                        self.browser.sleep(0.3)
+                        self.browser.sleep(0.1)
                         self._click_check_button()
-                        self.browser.sleep(0.5)
+                        self.browser.sleep(0.1)
                         self._click_ok_modal()
                         print("[SUCCESS] Pregunta contestada via hardcode.")
                         return True
@@ -290,9 +290,9 @@ class QuestionSolvers:
                     ad_a_btn = self.browser.page.get_by_text("Ad A", exact=True)
                     if ad_a_btn.count() > 0:
                         ad_a_btn.first.click()
-                        self.browser.sleep(0.3)
+                        self.browser.sleep(0.1)
                         self._click_check_button()
-                        self.browser.sleep(0.5)
+                        self.browser.sleep(0.1)
                         self._click_ok_modal()
                         print("[SUCCESS] Pregunta contestada via hardcode.")
                         return True
@@ -307,9 +307,9 @@ class QuestionSolvers:
                     product_btn = self.browser.page.get_by_text("Product sales", exact=False)
                     if product_btn.count() > 0:
                         product_btn.first.click()
-                        self.browser.sleep(0.3)
+                        self.browser.sleep(0.1)
                         self._click_check_button()
-                        self.browser.sleep(0.5)
+                        self.browser.sleep(0.1)
                         self._click_ok_modal()
                         print("[SUCCESS] Pregunta contestada via hardcode.")
                         return True
@@ -521,9 +521,9 @@ class QuestionSolvers:
                  if found_idx != -1:
                      print(f"[INFO] Encontrado match aprendido en índice {found_idx}")
                      option_elements[found_idx].click()
-                     self.browser.sleep(0.3)
+                     self.browser.sleep(0.1)
                      self._click_check_button()
-                     self.browser.sleep(1.0)
+                     self.browser.sleep(0.2)
                      # Learn again using the SAME context (text + options)
                      self.learn_from_mistake(question_text, full_context_for_sig) 
                      self._click_ok_modal()
@@ -548,39 +548,29 @@ class QuestionSolvers:
                 # Ya tenemos la respuesta del audio, usarla directamente
                 answer_index = audio_answer_index
                 print(f"[INFO] 🎵 Usando respuesta del análisis de audio")
-            elif has_image or reading_text:
-                # Tomar screenshot SOLO si es necesario (imagen o poco texto)
-                print("[DEBUG] Step: Taking screenshot...")
-                if has_image:
-                     # Capture ONLY the image element to reduce size/latency
-                     screenshot = None
-                     try:
-                         img_locator = self.browser.page.locator("img[alt='Descripción de la imagen']").first
-                         if img_locator.is_visible():
-                             screenshot = img_locator.screenshot()
-                             if screenshot:
-                                 print("[DEBUG] Step: Screenshot of IMAGE element taken.")
-                         else:
-                             screenshot = self.browser.screenshot()
-                             if screenshot:
-                                 print("[DEBUG] Step: Fallback to full page screenshot.")
-                     except Exception as e:
-                         print(f"[WARNING] Failed to capture screenshot: {e}")
-                         screenshot = None
-                     
-                     # Si screenshot falló, forzar modo solo texto
-                     if screenshot is None:
-                         print("[INFO] Screenshot failed, forcing text-only mode")
-                         has_image = False
-                elif len(reading_text) < 100:
-                     # If text is very short, screenshot might be better
-                     screenshot = self.browser.screenshot()
-                     if screenshot is None:
-                         print("[INFO] Screenshot failed, using text-only mode")
-                else:
-                     # Pure text mode - FASTEST
-                     screenshot = None
-                print("[DEBUG] Step: Screenshot taken (or skipped).")
+            elif has_image and len(reading_text) < 50:
+                # SOLO tomar screenshot si HAY IMAGEN y NO hay texto suficiente
+                print("[DEBUG] Step: Taking screenshot (imagen real detectada)...")
+                screenshot = None
+                try:
+                    # Intentar screenshot del elemento imagen específico
+                    img_locator = self.browser.page.locator("img[alt='Descripción de la imagen']").first
+                    if img_locator.is_visible():
+                        screenshot = img_locator.screenshot()
+                        if screenshot:
+                            print("[DEBUG] Step: Screenshot of IMAGE element taken.")
+                except Exception as e:
+                    print(f"[WARNING] Failed to capture screenshot: {e}")
+                    screenshot = None
+                
+                # Si screenshot falló, forzar modo solo texto
+                if screenshot is None:
+                    print("[INFO] Screenshot failed, forcing text-only mode")
+                    has_image = False
+            else:
+                # MODO SOLO TEXTO - El 90% de las preguntas
+                screenshot = None
+                print("[INFO] ⚡ Usando modo OPTIMIZADO (solo texto, sin screenshot)")
                 
                 # Construir prompt específico según tipo de pregunta
                 print("[DEBUG] Step: Generating content with Gemini...")
@@ -693,10 +683,6 @@ NO expliques tu respuesta. SOLO envía el número."""
                     answer_index = int(match.group(1))
                 else:
                     answer_index = 0
-            else:
-                # Sin imagen ni texto, usar método de solo texto
-                result = self.solver.analyze_question_text_only(question_text, options)
-                answer_index = result.get("answer_index", 0)
             
             if answer_index < 0 or answer_index >= len(options):
                 answer_index = 0
@@ -706,11 +692,11 @@ NO expliques tu respuesta. SOLO envía el número."""
             
             # Click en la opción
             option_elements[answer_index].click()
-            self.browser.sleep(0.3)
+            self.browser.sleep(0.1)
             
             # Click en CHECK
             self._click_check_button()
-            self.browser.sleep(0.5)
+            self.browser.sleep(0.1)
             
             # Click en OK del modal
             self.learn_from_mistake(question_text, full_context_for_sig)
@@ -807,11 +793,11 @@ NO expliques tu respuesta. SOLO envía el número."""
             
             # Click en la opción correcta
             option_elements[answer_index].click()
-            self.browser.sleep(0.3)
+            self.browser.sleep(0.1)
             
             # Click en CHECK
             self._click_check_button()
-            self.browser.sleep(0.5)
+            self.browser.sleep(0.1)
             
             # Click en OK del modal
             self._click_ok_modal()
@@ -923,9 +909,9 @@ NO expliques tu respuesta. SOLO envía el número."""
                             print(f"[WARNING] Error filling learned answer {i+1}: {e}")
                 
                 if filled_k > 0:
-                     self.browser.sleep(0.5)
+                     self.browser.sleep(0.1)
                      self._click_check_button()
-                     self.browser.sleep(1.0)
+                     self.browser.sleep(0.2)
                      self.learn_from_mistake(question_text, full_context_sig)
                      self._click_ok_modal()
                      self.browser.sleep(self.delay)
@@ -993,9 +979,9 @@ INSTRUCCIONES:
             if filled == 0:
                 return False
             
-            self.browser.sleep(0.3)
+            self.browser.sleep(0.1)
             self._click_check_button()
-            self.browser.sleep(0.5)
+            self.browser.sleep(0.1)
             self.learn_from_mistake(question_text, full_context_sig)
             self._click_ok_modal()
             
@@ -1025,15 +1011,15 @@ INSTRUCCIONES:
             if self.browser.page.locator("#mail-address").is_visible():
                 print(f"[INFO] Ingresando email: {email}")
                 self.browser.page.fill("#mail-address", email)
-                self.browser.sleep(0.5)
+                self.browser.sleep(0.1)
                 
                 print("[INFO] Ingresando contraseña...")
                 self.browser.page.fill("#password", password)
-                self.browser.sleep(0.5)
+                self.browser.sleep(0.1)
                 
                 print("[INFO] Click en Ingresar")
                 self.browser.page.click("button[type='submit']")
-                self.browser.sleep(5) # Wait for redirects
+                self.browser.sleep(0.5) # Wait for redirects
                 
                 # Verificar si salimos del login
                 if not self.browser.page.locator("#mail-address").is_visible():
@@ -1341,7 +1327,7 @@ INSTRUCCIONES:
                 if any_paragraph:
                     print("[INFO] Estrategia Fail-Fast para Párrafos: Click CHECK para aprender inmediatamente.")
                     self._click_check_button()
-                    self.browser.sleep(0.5)
+                    self.browser.sleep(0.1)
                     self.learn_from_mistake(question_text, ctx_sentences)
                     self._click_ok_modal()
                     return True
@@ -1453,9 +1439,9 @@ Responde SOLO con: 1. Word | Word | Word"""
             
             # 5. CHECK FINAL
             # 5. CHECK FINAL
-            self.browser.sleep(0.3)
+            self.browser.sleep(0.1)
             self._click_check_button()
-            self.browser.sleep(0.5)
+            self.browser.sleep(0.1)
             self.learn_from_mistake(question_text, ctx_sentences)
             self._click_ok_modal()
             
@@ -1547,7 +1533,7 @@ Responde SOLO con: 1. Word | Word | Word"""
                             continue
                 
                 if success:
-                    self.browser.sleep(0.5)
+                    self.browser.sleep(0.1)
                     self._click_check_button()
                     self.browser.sleep(1)
                     self._click_ok_modal()
@@ -1656,9 +1642,9 @@ Responde SOLO con: 1. Word | Word | Word"""
                                 break
                                 
                 if clicks_made > 0:
-                    self.browser.sleep(0.5)
+                    self.browser.sleep(0.1)
                     self._click_check_button()
-                    self.browser.sleep(1.0)
+                    self.browser.sleep(0.2)
                     self.learn_from_mistake(unique_key) # Usar la clave única para aprender
                     self._click_ok_modal()
                     return True
@@ -1756,9 +1742,9 @@ Formato exacto:
             print(f"[INFO] Clicks realizados: {clicked}")
             
             # 4. CHECK
-            self.browser.sleep(0.3)
+            self.browser.sleep(0.1)
             self._click_check_button()
-            self.browser.sleep(1.0)
+            self.browser.sleep(0.2)
             self.learn_from_mistake(unique_key)
             self._click_ok_modal()
             
@@ -1795,9 +1781,9 @@ Formato exacto:
             # Scroll para asegurar que todo el DOM está renderizado
             try:
                 self.browser.page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                self.browser.sleep(0.3)
+                self.browser.sleep(0.1)
                 self.browser.page.evaluate("window.scrollTo(0, 0)") # Volver arriba para no afectar clicks
-                self.browser.sleep(0.3)
+                self.browser.sleep(0.1)
             except: pass
 
             # Selector mejorado: Busca contenedores de items (generalmente p-5 o estilo tarjeta) que tengan botones activar-btn
@@ -1916,9 +1902,9 @@ Formato exacto:
                         except: pass
                 
                 if clicks_k > 0:
-                    self.browser.sleep(0.5)
+                    self.browser.sleep(0.1)
                     self._click_check_button()
-                    self.browser.sleep(1.0)
+                    self.browser.sleep(0.2)
                     self.learn_from_mistake(unique_key, paragraph_text)
                     self._click_ok_modal()
                     return True
@@ -2137,7 +2123,7 @@ REGLAS:
                             # Intento 1: JS Click directo
                             matched_opt_element.evaluate("el => el.click()")
                             clicked += 1
-                            self.browser.sleep(0.3) 
+                            self.browser.sleep(0.1) 
                         except Exception as e:
                             print(f"[WARNING] Falló JS Click: {e}. Intentando click nativo...")
                             try:
@@ -2167,14 +2153,14 @@ REGLAS:
             
             print(f"[INFO] Clicks realizados: {clicked}")
             
-            self.browser.sleep(0.5)
+            self.browser.sleep(0.1)
             
             # 6. Click en CHECK
             self._click_check_button()
             self.browser.sleep(1)
             
             # 7. Click en OK del modal
-            self.browser.sleep(0.5)
+            self.browser.sleep(0.1)
             # Ahora unique_key está definida gracias al refactor
             try:
                 # FIX: Pasar paragraph_text para que el hash coincida con try_solve_with_knowledge
@@ -2236,15 +2222,15 @@ REGLAS:
                                         btn.click()
                                         print(f"[SUCCESS] Click en '{target_answer}'")
                                         clicks_made += 1
-                                        self.browser.sleep(0.3)
+                                        self.browser.sleep(0.1)
                                         break
                         except Exception as e:
                             print(f"[WARNING] No se pudo clickear '{target_answer}': {e}")
                             
                     if clicks_made > 0:
-                        self.browser.sleep(0.5)
+                        self.browser.sleep(0.1)
                         self._click_check_button()
-                        self.browser.sleep(0.5)
+                        self.browser.sleep(0.1)
                         self._click_ok_modal()
                         return True
                         
@@ -2264,7 +2250,7 @@ REGLAS:
                 all_filled = self.browser.page.query_selector("button:has-text('Waiting answer')") is None
                 if all_filled:
                     self._click_check_button()
-                    self.browser.sleep(0.5)
+                    self.browser.sleep(0.1)
                     self._click_ok_modal()
                     return True
                 return False
@@ -2409,9 +2395,9 @@ REGLAS:
                             print(f"[WARNING] Click error (learned): {e}")
                 
                 if clicks_k > 0:
-                     self.browser.sleep(0.5)
+                     self.browser.sleep(0.1)
                      self._click_check_button()
-                     self.browser.sleep(1.0)
+                     self.browser.sleep(0.2)
                      # Learn again to reinforce/update
                      self.learn_from_mistake(question_text, full_context_sig)
                      self._click_ok_modal()
@@ -2551,13 +2537,13 @@ Respuesta:"""
             print(f"[INFO] Clicks realizados: {clicks_done}")
             
             # 6. Verificar si quedan zonas pendientes antes de hacer CHECK
-            self.browser.sleep(1.0) # Esperar a que la UI se actualice
+            self.browser.sleep(0.2) # Esperar a que la UI se actualice
             remaining_waiting = self.browser.page.query_selector_all("button:has-text('Waiting answer')")
             
             if len(remaining_waiting) == 0 and clicks_done > 0:
-                self.browser.sleep(0.5)
+                self.browser.sleep(0.1)
                 self._click_check_button()
-                self.browser.sleep(1.0) # Wait for animation
+                self.browser.sleep(0.2) # Wait for animation
                 self.learn_from_mistake(question_text, full_context_sig)
                 self._click_ok_modal()
                 
@@ -2615,9 +2601,9 @@ Respuesta:"""
                 for opt in options:
                     if opt['text'].upper().replace("´", "'").replace("`", "'") == target:
                         opt['element'].click()
-                        self.browser.sleep(0.3)
+                        self.browser.sleep(0.1)
                         self._click_check_button()
-                        self.browser.sleep(0.5)
+                        self.browser.sleep(0.1)
                         self.learn_from_mistake(question_text, full_context_sig)
                         self._click_ok_modal()
                         self.browser.sleep(self.delay)
@@ -2653,11 +2639,11 @@ Responde SOLO con la opción correcta exacta, nada más:"""
             if matched:
                 print(f"[INFO] Seleccionando: '{matched['text']}'")
                 matched['element'].click()
-                self.browser.sleep(0.3)
+                self.browser.sleep(0.1)
                 
                 # Click en CHECK
                 self._click_check_button()
-                self.browser.sleep(0.5)
+                self.browser.sleep(0.1)
                 self.learn_from_mistake(question_text, full_context_sig)
                 self._click_ok_modal()
                 
@@ -2755,9 +2741,9 @@ Responde SOLO con la opción correcta exacta, nada más:"""
                             if found_click: break
                 
                 if clicks_k > 0:
-                     self.browser.sleep(0.5)
+                     self.browser.sleep(0.1)
                      self._click_check_button()
-                     self.browser.sleep(1.0)
+                     self.browser.sleep(0.2)
                      self.learn_from_mistake(question_text, full_context_sig)
                      self._click_ok_modal()
                      self.browser.sleep(self.delay)
@@ -2817,9 +2803,9 @@ Responde con una línea por puesto en formato "Puesto: Requisito":"""
             print(f"[INFO] Seleccionados: {clicked} botones")
             
             # 5. CHECK
-            self.browser.sleep(0.3)
+            self.browser.sleep(0.1)
             self._click_check_button()
-            self.browser.sleep(0.5)
+            self.browser.sleep(0.1)
             self.learn_from_mistake(question_text, full_context_sig)
             self._click_ok_modal()
             
@@ -2967,7 +2953,7 @@ Responde con una línea por puesto en formato "Puesto: Requisito":"""
                              best_match['element'].click()
                              clicks_k += 1
                              used_texts.add(best_match['text'].lower())
-                             self.browser.sleep(0.3)
+                             self.browser.sleep(0.1)
                          except:
                              # Fallback click by text
                              try:
@@ -2977,9 +2963,9 @@ Responde con una línea por puesto en formato "Puesto: Requisito":"""
                              except: pass
                 
                 if clicks_k > 0:
-                     self.browser.sleep(0.5)
+                     self.browser.sleep(0.1)
                      self._click_check_button()
-                     self.browser.sleep(1.0)
+                     self.browser.sleep(0.2)
                      self.learn_from_mistake(question_text, full_context_sig)
                      self._click_ok_modal()
                      self.browser.sleep(self.delay)
@@ -3070,7 +3056,7 @@ Respuesta:"""
                         best_match['element'].click()
                         clicks_done += 1
                         used_texts.add(best_match['text'].lower())
-                        self.browser.sleep(0.3)
+                        self.browser.sleep(0.1)
                     except Exception as e:
                         # Fallback: buscar por texto
                         print(f"[DEBUG] Click directo falló, intentando por texto...")
@@ -3078,7 +3064,7 @@ Respuesta:"""
                             self.browser.page.click(f"button.group:has-text('{best_match['text']}')", timeout=2000)
                             clicks_done += 1
                             used_texts.add(best_match['text'].lower())
-                            self.browser.sleep(0.3)
+                            self.browser.sleep(0.1)
                         except:
                             print(f"[WARNING] Falló click en '{best_match['text']}'")
                 else:
@@ -3087,19 +3073,19 @@ Respuesta:"""
             print(f"[INFO] Clicks realizados: {clicks_done}/{num_zones}")
             
             # 8. Verificar y hacer CHECK
-            self.browser.sleep(0.5)
+            self.browser.sleep(0.1)
             remaining = self.browser.page.query_selector_all("button:has-text('Waiting answer')")
             
             if len(remaining) == 0 and clicks_done > 0:
                 self._click_check_button()
-                self.browser.sleep(0.5)
+                self.browser.sleep(0.1)
                 self.learn_from_mistake(question_text, full_context_sig)
                 self._click_ok_modal()
                 print(f"[SUCCESS] Pregunta (text match) respondida")
             elif clicks_done > 0:
                 # Intentar CHECK de todos modos
                 self._click_check_button()
-                self.browser.sleep(0.5)
+                self.browser.sleep(0.1)
                 self.learn_from_mistake(question_text, full_context_sig)
                 self._click_ok_modal()
             
@@ -3221,7 +3207,7 @@ Instrucciones:
                                 best_btn.click()
                                 print(f"[INFO] P {i+1} (Known) -> Click en '{best_btn.inner_text()}'")
                                 clicks += 1
-                                self.browser.sleep(0.3)
+                                self.browser.sleep(0.1)
                             except: pass
             else:
                 # Use Gemini
@@ -3256,16 +3242,16 @@ Instrucciones:
                                     best_btn.click()
                                     print(f"[INFO] P {idx+1} -> Click en '{best_btn.inner_text()}'")
                                     clicks += 1
-                                    self.browser.sleep(0.3)
+                                    self.browser.sleep(0.1)
                                 except:
                                     print(f"[WARNING] Falló click en {idx+1}")
             
             if clicks > 0:
-                self.browser.sleep(0.5)
+                self.browser.sleep(0.1)
                 self._click_check_button()
                 
                 # Try to learn if mistake happened
-                self.browser.sleep(1.0) # Wait for modal animation
+                self.browser.sleep(0.2) # Wait for modal animation
                 self.learn_from_mistake(question_text, full_context_sig)
                 
                 self._click_ok_modal()

@@ -208,7 +208,7 @@ class BrowserController:
         """Navega a una URL."""
         print(f"[INFO] Navegando a: {url}")
         self.page.goto(url, wait_until=wait_until, timeout=120000)
-        time.sleep(3)
+        # Playwright espera automáticamente - no sleep necesario
     
     def wait_for_form_ready(self, email_selector: str, timeout: int = 30):
         """Espera a que el formulario esté listo o detecta si ya está logueado."""
