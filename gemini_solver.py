@@ -16,8 +16,48 @@ class GeminiSolver:
         genai.configure(api_key=api_key)
         # Usar Gemini 3 Flash - el modelo más reciente
         self.model = genai.GenerativeModel('gemini-3-flash-preview')
+        # Modelo avanzado para preguntas difíciles
+        self.advanced_model = genai.GenerativeModel('gemini-3-pro-preview')
+        self.using_advanced = False
         print("[INFO] Gemini API configurada con modelo gemini-3-flash-preview")
     
+    def switch_to_advanced_model(self):
+        """Cambia temporalmente al modelo avanzado para preguntas difíciles."""
+        self.using_advanced = True
+        print("[INFO] Cambiando a modelo avanzado: gemini-3-pro-preview")
+    
+    def reset_to_normal_model(self):
+        """Vuelve al modelo normal."""
+        self.using_advanced = False
+        print("[INFO] Volviendo a modelo normal: gemini-3-flash-preview")
+    
+    def get_active_model(self):
+        """Retorna el modelo actualmente activo."""
+        return self.advanced_model if self.using_advanced else self.model
+    
+    def generate_content_with_image(self, prompt: str, screenshot_bytes: bytes, timeout: int = 30) -> str:
+        """
+        Genera contenido usando Gemini con imagen y timeout seguro.
+        """
+        try:
+            image_part = {
+                "mime_type": "image/png",
+                "data": base64.b64encode(screenshot_bytes).decode()
+            }
+            
+            active_model = self.get_active_model()
+            # Configure request options for timeout
+            # Note: google.generativeai uses 'request_options'
+            response = active_model.generate_content(
+                [prompt, image_part],
+                request_options={"timeout": timeout}
+            )
+            return response.text.strip()
+            
+        except Exception as e:
+            print(f"[ERROR] Gemini timeout o error: {e}")
+            return None
+
     def analyze_question_with_image(self, screenshot_bytes: bytes, question_text: str = None) -> dict:
         """
         Analiza una pregunta a partir de un screenshot.
@@ -44,21 +84,19 @@ Responde en el siguiente formato EXACTO:
 PREGUNTA: [texto de la pregunta]
 OPCIONES: [lista de opciones separadas por |]
 RESPUESTA: [texto exacto de la opción correcta]
-EXPLICACIÓN: [breve explicación de por qué es correcta]
+
+NO incluyas ninguna explicación adicional.
 """
         
         if question_text:
             prompt += f"\n\nContexto adicional - Pregunta detectada: {question_text}"
         
         try:
-            # Crear imagen para Gemini
-            image_part = {
-                "mime_type": "image/png",
-                "data": base64.b64encode(screenshot_bytes).decode()
-            }
+            # Usar el método seguro nuevo
+            result_text = self.generate_content_with_image(prompt, screenshot_bytes, timeout=45)
             
-            response = self.model.generate_content([prompt, image_part])
-            result_text = response.text
+            if not result_text:
+                return {"answer_text": None, "answer_index": -1, "error": "Timeout/Error"}
             
             print(f"[DEBUG] Respuesta de Gemini:\n{result_text}")
             
@@ -82,26 +120,33 @@ EXPLICACIÓN: [breve explicación de por qué es correcta]
         """
         options_text = "\n".join([f"{i+1}. {opt}" for i, opt in enumerate(options)])
         
-        prompt = f"""Eres un experto en inglés. Analiza esta pregunta de un examen y selecciona la respuesta correcta.
+        prompt = f"""Eres un experto profesor de inglés evaluando un examen. Analiza esta pregunta y selecciona la respuesta MÁS APROPIADA en un contexto de examen de inglés básico/intermedio.
 
 PREGUNTA: {question}
 
 OPCIONES:
 {options_text}
 
+CONTEXTO IMPORTANTE:
+- En exámenes de inglés, las preguntas suelen tener MÚLTIPLES respuestas gramaticalmente correctas
+- Debes elegir la opción MÁS COMÚN o MÁS ESPERADA en un contexto educativo
+- Si la pregunta es sobre descripción de personas físicas o personales, considera adjetivos relacionados con apariencia, personalidad o características personales
+- Si es "HOW + adjetivo", piensa en qué adjetivo es más relevante para el sustantivo en cuestión
+
 INSTRUCCIONES:
-- Si es una pregunta de DEFINICIÓN, busca la definición correcta del término.
-- Si es una pregunta de COMPLETAR ORACIONES, elige la palabra que tiene más sentido.
-- Si es una pregunta de VOCABULARIO, busca el significado correcto.
+1. Analiza TODAS las opciones - no te quedes con la primera que parezca correcta
+2. Si hay múltiples opciones gramaticalmente válidas, elige la MÁS PROBABLE en un examen estándar de inglés
+3. Para preguntas sobre personas, prioriza adjetivos de apariencia/personalidad sobre medidas físicas
 
 Responde en el siguiente formato EXACTO:
 RESPUESTA: [número de la opción correcta (1, 2, 3, o 4)]
 TEXTO: [texto exacto de la opción]
-EXPLICACIÓN: [breve explicación]
+
+NO incluyas ninguna explicación. Solo RESPUESTA y TEXTO.
 """
         
         try:
-            response = self.model.generate_content(prompt)
+            response = self.get_active_model().generate_content(prompt)
             result_text = response.text
             
             print(f"[DEBUG] Respuesta de Gemini:\n{result_text}")
@@ -206,7 +251,7 @@ Si hay opciones o respuestas visibles, incluye cuál es la correcta.
                 "data": base64.b64encode(screenshot_bytes).decode()
             }
             
-            response = self.model.generate_content([prompt, image_part])
+            response = self.get_active_model().generate_content([prompt, image_part])
             result_text = response.text
             
             print(f"[DEBUG] Respuesta de Gemini (análisis desconocido):\n{result_text}")

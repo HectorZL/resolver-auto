@@ -5,6 +5,10 @@ Script para ejecutar el agente de exámenes.
 from exam_agent import ExamAgent
 import sys
 
+# Patch asyncio to allow nested loops (Playwright Sync + Gemini)
+import nest_asyncio
+nest_asyncio.apply()
+
 
 def main():
     """Punto de entrada principal."""

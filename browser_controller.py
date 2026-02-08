@@ -59,7 +59,21 @@ class BrowserController:
         
     def start(self) -> Page:
         """Inicia Edge - intenta CDP primero, luego fallback."""
-        self.playwright = sync_playwright().start()
+        if self.playwright is None:
+             self.playwright = sync_playwright().start()
+        
+        # Si ya tenemos browser y page activos, verificar si siguen vivos
+        if self.browser and self.page:
+            try:
+                # Simple check taking title or url to see if connection is alive
+                self.page.url 
+                print("[INFO] Navegador ya activo, reutilizando sesión.")
+                return self.page
+            except:
+                print("[WARNING] Sesión anterior muerta, reiniciando...")
+                self.close()
+                if self.playwright is None:
+                     self.playwright = sync_playwright().start()
         
         # Cerrar todos los Edge existentes
         kill_edge_processes()
@@ -229,9 +243,10 @@ class BrowserController:
         return False
     
     def screenshot(self, path: str = None, full_page: bool = False) -> bytes:
+        # Timeout aumentado a 60s para manejar carga lenta de fuentes
         if path:
-            self.page.screenshot(path=path, full_page=full_page)
-        return self.page.screenshot(full_page=full_page)
+            self.page.screenshot(path=path, full_page=full_page, timeout=60000)
+        return self.page.screenshot(full_page=full_page, timeout=60000)
     
     def click(self, selector: str, timeout: int = 30000):
         self.page.click(selector, timeout=timeout)

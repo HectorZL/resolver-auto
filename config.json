@@ -4,6 +4,11 @@
   "password": "2005sandraESMERALDA@",
   "gemini_api_key": "AIzaSyBokTbgZaT3onJ0HIufhKJKA-j_VEvu4iY",
   "headless": false,
-  "delay_between_questions": 2,
-  "activities_to_solve": ["writing", "vocabulary", "reading", "grammar", "listening"]
+  "delay_between_questions": 4,
+  "activities_to_solve": [
+    "writing",
+    "vocabulary",
+    "reading",
+    "grammar"
+  ]
 }
