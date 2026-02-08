@@ -319,6 +319,75 @@ class QuestionSolvers:
                      print(f"[ERROR] Falló hardcode Product Sales: {e}")
             # --- HARDCODED ANSWERS END ---
 
+            # ====== DETECTAR Y PROCESAR AUDIO (si existe) ======
+            audio_element = self.browser.page.query_selector("audio")
+            has_audio = audio_element is not None
+            audio_answer_index = -1  # Índice de respuesta del audio (si se procesa)
+            
+            if has_audio:
+                print("[INFO] 🎵 Audio detectado en pregunta de opción múltiple")
+                try:
+                    # Extraer opciones primero (las necesitamos para enviar a Gemini)
+                    temp_options = []
+                    cards = self.browser.page.query_selector_all(".cardCheck")
+                    for card in cards:
+                        button = card.query_selector("button")
+                        if button:
+                            option_text = button.inner_text().strip()
+                            if option_text:
+                                temp_options.append(option_text)
+                    
+                    if temp_options:
+                        # Extraer la URL del audio
+                        audio_url = audio_element.get_attribute("src")
+                        if not audio_url:
+                            source_element = audio_element.query_selector("source")
+                            if source_element:
+                                audio_url = source_element.get_attribute("src")
+                        
+                        if audio_url:
+                            print(f"[INFO] URL de audio: {audio_url[:80]}...")
+                            
+                            # Descargar audio
+                            if audio_url.startswith("blob:"):
+                                print("[INFO] Convirtiendo blob URL a bytes...")
+                                audio_base64 = self.browser.page.evaluate("""
+                                    async (audioUrl) => {
+                                        const response = await fetch(audioUrl);
+                                        const blob = await response.blob();
+                                        return new Promise((resolve) => {
+                                            const reader = new FileReader();
+                                            reader.onloadend = () => resolve(reader.result.split(',')[1]);
+                                            reader.readAsDataURL(blob);
+                                        });
+                                    }
+                                """, audio_url)
+                                import base64
+                                audio_bytes = base64.b64decode(audio_base64)
+                            else:
+                                import requests
+                                response = requests.get(audio_url, timeout=10)
+                                audio_bytes = response.content
+                            
+                            print(f"[INFO] Audio descargado: {len(audio_bytes)} bytes")
+                            
+                            # Analizar con Gemini
+                            result = self.solver.analyze_audio_question(audio_bytes, question_text, temp_options)
+                            audio_answer_index = result.get("answer_index", -1)
+                            
+                            if audio_answer_index >= 0 and audio_answer_index < len(temp_options):
+                                print(f"[INFO] ✅ Gemini sugiere (audio): {temp_options[audio_answer_index]}")
+                            else:
+                                print(f"[WARNING] Índice de audio inválido: {audio_answer_index}")
+                                audio_answer_index = -1
+                        else:
+                            print("[WARNING] No se pudo extraer URL del audio")
+                except Exception as e:
+                    print(f"[WARNING] Error procesando audio: {e}")
+                    print("[INFO] Continuando con flujo normal de multiple_choice...")
+            
+            # ====== FIN DE PROCESAMIENTO DE AUDIO ======
+
             # Extraer opciones
             options = []
             option_elements = []
@@ -474,7 +543,12 @@ class QuestionSolvers:
             is_vocabulary = any(word in q_lower for word in ['similar', 'mean', 'synonym', 'bold word', 'word mean'])
             is_reading_comprehension = any(word in q_lower for word in ['read the text', 'according to', 'paragraph'])
             
-            if has_image or reading_text:
+            # ====== DECISIÓN: Usar respuesta de AUDIO o llamar a Gemini ======
+            if audio_answer_index >= 0:
+                # Ya tenemos la respuesta del audio, usarla directamente
+                answer_index = audio_answer_index
+                print(f"[INFO] 🎵 Usando respuesta del análisis de audio")
+            elif has_image or reading_text:
                 # Tomar screenshot SOLO si es necesario (imagen o poco texto)
                 print("[DEBUG] Step: Taking screenshot...")
                 if has_image:
@@ -638,6 +712,106 @@ NO expliques tu respuesta. SOLO envía el número."""
             
         except Exception as e:
             print(f"[ERROR] Error en multiple choice: {e}")
+            traceback.print_exc()
+            return False
+
+    def solve_audio_question(self, question_text: str) -> bool:
+        """Resuelve preguntas de listening con audio."""
+        try:
+            print("[INFO] Detectado audio en la pregunta")
+            
+            # Encontrar elemento de audio
+            audio_element = self.browser.page.query_selector("audio")
+            if not audio_element:
+                print("[ERROR] No se encontró elemento de audio")
+                return False
+            
+            # Extraer la URL del audio
+            audio_url = audio_element.get_attribute("src")
+            if not audio_url:
+                # Buscar en source child
+                source_element = audio_element.query_selector("source")
+                if source_element:
+                    audio_url = source_element.get_attribute("src")
+            
+            print(f"[INFO] URL de audio: {audio_url}")
+            
+            # Descargar audio - Manejar blob URLs
+            try:
+                if audio_url.startswith("blob:"):
+                    print("[INFO] Detectado blob URL, convirtiendo a bytes...")
+                    # Usar JavaScript para convertir blob a base64
+                    audio_base64 = self.browser.page.evaluate("""
+                        async (audioUrl) => {
+                            const response = await fetch(audioUrl);
+                            const blob = await response.blob();
+                            return new Promise((resolve) => {
+                                const reader = new FileReader();
+                                reader.onloadend = () => resolve(reader.result.split(',')[1]);
+                                reader.readAsDataURL(blob);
+                            });
+                        }
+                    """, audio_url)
+                    audio_bytes = base64.b64decode(audio_base64)
+                    print(f"[INFO] Audio descargado: {len(audio_bytes)} bytes")
+                else:
+                    # URL directa - descargar con requests
+                    import requests
+                    response = requests.get(audio_url, timeout=10)
+                    audio_bytes = response.content
+                    print(f"[INFO] Audio descargado: {len(audio_bytes)} bytes")
+            except Exception as e:
+                print(f"[ERROR] Error descargando audio: {e}")
+                return False
+            
+            # Extraer opciones de respuesta
+            options = []
+            option_elements = []
+            cards = self.browser.page.query_selector_all(".cardCheck")
+            for card in cards:
+                button = card.query_selector("button")
+                if button:
+                    option_text = button.inner_text().strip()
+                    if option_text:
+                        options.append(option_text)
+                        option_elements.append(card)
+            
+            print(f"[INFO] Opciones encontradas: {options}")
+            
+            if not options:
+                print("[ERROR] No se encontraron opciones")
+                return False
+            
+            # Enviar a Gemini para análisis
+            print("[INFO] Enviando audio a Gemini para análisis...")
+            result = self.solver.analyze_audio_question(audio_bytes, question_text, options)
+            
+            answer_index = result.get("answer_index", -1)
+            answer_text = result.get("answer_text")
+            
+            if answer_index < 0 or answer_index >= len(options):
+                print(f"[WARNING] Índice de respuesta inválido: {answer_index}, usando 0")
+                answer_index = 0
+            
+            print(f"[INFO] Respuesta seleccionada: {options[answer_index]}")
+            
+            # Click en la opción correcta
+            option_elements[answer_index].click()
+            self.browser.sleep(0.3)
+            
+            # Click en CHECK
+            self._click_check_button()
+            self.browser.sleep(0.5)
+            
+            # Click en OK del modal
+            self._click_ok_modal()
+            
+            print(f"[SUCCESS] Pregunta de audio respondida")
+            self.browser.sleep(self.delay)
+            return True
+            
+        except Exception as e:
+            print(f"[ERROR] Error en solve_audio_question: {e}")
             traceback.print_exc()
             return False
 

@@ -18,7 +18,7 @@ class ModuleNavigator:
         self.config = config
         self.activities_to_solve = [
             "practice", "quiz", "unit test", "grammar", 
-            "vocabulary", "reading", "speaking",
+            "vocabulary", "reading", "speaking", "listening",
             "video", "match", "fill", "writing"
         ] # Default keywords if not specified elsewhere. 
         # Ideally this should be configurable or passed in, but hardcoding reasonable defaults similar to original agent logic.

@@ -168,6 +168,75 @@ NO incluyas ninguna explicación. Solo RESPUESTA y TEXTO.
             print(f"[ERROR] Error al analizar con Gemini: {e}")
             return {"answer_text": None, "answer_index": -1, "error": str(e)}
     
+    def analyze_audio_question(self, audio_bytes: bytes, question_text: str, options: list) -> dict:
+        """
+        Analiza una pregunta de tipo listening usando audio.
+        
+        Args:
+            audio_bytes: Bytes del archivo de audio (MP3, WAV, etc.)
+            question_text: Texto de la pregunta
+            options: Lista de opciones disponibles
+            
+        Returns:
+            dict con 'answer_text' y 'answer_index'
+        """
+        options_text = "\n".join([f"{i+1}. {opt}" for i, opt in enumerate(options)])
+        
+        prompt = f"""Eres un experto profesor de inglés evaluando un examen de listening. Escucha el audio adjunto y responde la pregunta.
+
+PREGUNTA: {question_text}
+
+OPCIONES:
+{options_text}
+
+INSTRUCCIONES:
+1. Escucha el audio cuidadosamente
+2. Analiza el contenido y contexto del audio
+3. Selecciona la opción que mejor responda a la pregunta basándote en lo que escuchaste
+4. Considera vocabulario, gramática y contexto del audio
+
+Responde en el siguiente formato EXACTO:
+RESPUESTA: [número de la opción correcta (1, 2, 3, o 4)]
+TEXTO: [texto exacto de la opción]
+
+NO incluyas ninguna explicación. Solo RESPUESTA y TEXTO.
+"""
+        
+        try:
+            # Crear part de audio para Gemini
+            audio_part = {
+                "mime_type": "audio/mp3",  # Gemini acepta múltiples formatos
+                "data": base64.b64encode(audio_bytes).decode()
+            }
+            
+            active_model = self.get_active_model()
+            print("[DEBUG] Enviando audio a Gemini (con timeout de 60s)...")
+            response = active_model.generate_content(
+                [prompt, audio_part],
+                request_options={"timeout": 60}  # Timeout de 60 segundos
+            )
+            result_text = response.text
+            
+            print(f"[DEBUG] Respuesta de Gemini (audio):\n{result_text}")
+            
+            # Parsear respuesta
+            answer_match = re.search(r'RESPUESTA:\s*(\d+)', result_text)
+            text_match = re.search(r'TEXTO:\s*(.+)', result_text)
+            
+            answer_index = int(answer_match.group(1)) - 1 if answer_match else -1
+            answer_text = text_match.group(1).strip() if text_match else options[answer_index] if answer_index >= 0 else None
+            
+            return {
+                "answer_text": answer_text,
+                "answer_index": answer_index,
+                "raw_response": result_text
+            }
+            
+        except Exception as e:
+            print(f"[ERROR] Error al analizar audio con Gemini: {e}")
+            print("[WARNING] Usando fallback: seleccionando opción 0")
+            return {"answer_text": options[0] if options else None, "answer_index": 0, "error": str(e)}
+    
     def _parse_response(self, response_text: str) -> dict:
         """Parsea la respuesta de Gemini."""
         result = {

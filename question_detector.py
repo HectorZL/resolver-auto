@@ -29,7 +29,9 @@ class QuestionDetector:
     def detect_question_type(self) -> str:
         """Detecta el tipo de pregunta en la página."""
         try:
-            # Verificar si hay cardCheck (opción múltiple tradicional)
+            # Verificar si hay cardCheck (opción múltiple tradicional, con o sin audio)
+            # NOTA: Las preguntas de listening también usan cardCheck, así que no necesitamos
+            # un tipo separado. El solver de multiple_choice detectará y procesará el audio.
             cards = self.browser.page.query_selector_all(".cardCheck")
             if len(cards) > 0:
                 return "multiple_choice"
