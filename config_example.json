@@ -1,0 +1,14 @@
+{
+  "login_url": "https://aulaslenguas.utm.edu.ec:8443/signin",
+  "email": "prueba@utm.edu.ec",
+  "password": "prueba",
+  "gemini_api_key": "inserta tu api key de google gemini",
+  "headless": false,
+  "delay_between_questions": 4,
+  "activities_to_solve": [
+    "writing",
+    "vocabulary",
+    "reading",
+    "grammar"
+  ]
+}
