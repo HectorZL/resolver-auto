@@ -553,20 +553,30 @@ class QuestionSolvers:
                 print("[DEBUG] Step: Taking screenshot...")
                 if has_image:
                      # Capture ONLY the image element to reduce size/latency
+                     screenshot = None
                      try:
                          img_locator = self.browser.page.locator("img[alt='Descripción de la imagen']").first
                          if img_locator.is_visible():
                              screenshot = img_locator.screenshot()
-                             print("[DEBUG] Step: Screenshot of IMAGE element taken.")
+                             if screenshot:
+                                 print("[DEBUG] Step: Screenshot of IMAGE element taken.")
                          else:
                              screenshot = self.browser.screenshot()
-                             print("[DEBUG] Step: Fallback to full page screenshot.")
+                             if screenshot:
+                                 print("[DEBUG] Step: Fallback to full page screenshot.")
                      except Exception as e:
-                         print(f"[WARNING] Failed to capture element screenshot: {e}")
-                         screenshot = self.browser.screenshot()
+                         print(f"[WARNING] Failed to capture screenshot: {e}")
+                         screenshot = None
+                     
+                     # Si screenshot falló, forzar modo solo texto
+                     if screenshot is None:
+                         print("[INFO] Screenshot failed, forcing text-only mode")
+                         has_image = False
                 elif len(reading_text) < 100:
                      # If text is very short, screenshot might be better
                      screenshot = self.browser.screenshot()
+                     if screenshot is None:
+                         print("[INFO] Screenshot failed, using text-only mode")
                 else:
                      # Pure text mode - FASTEST
                      screenshot = None

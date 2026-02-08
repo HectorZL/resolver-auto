@@ -243,10 +243,25 @@ class BrowserController:
         return False
     
     def screenshot(self, path: str = None, full_page: bool = False) -> bytes:
-        # Timeout aumentado a 60s para manejar carga lenta de fuentes
-        if path:
-            self.page.screenshot(path=path, full_page=full_page, timeout=60000)
-        return self.page.screenshot(full_page=full_page, timeout=60000)
+        """Toma screenshot con optimizaciones para evitar timeouts de fuentes."""
+        try:
+            # Reducido timeout a 15s y disabled animations para evitar espera de fuentes
+            if path:
+                self.page.screenshot(
+                    path=path, 
+                    full_page=full_page, 
+                    timeout=15000,
+                    animations="disabled"
+                )
+            return self.page.screenshot(
+                full_page=full_page, 
+                timeout=15000,
+                animations="disabled"
+            )
+        except Exception as e:
+            print(f"[WARNING] Screenshot timeout o error: {e}")
+            # Retornar None para que el solver use solo texto
+            return None
     
     def click(self, selector: str, timeout: int = 30000):
         self.page.click(selector, timeout=timeout)
