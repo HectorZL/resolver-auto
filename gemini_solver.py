@@ -14,12 +14,12 @@ class GeminiSolver:
     def __init__(self, api_key: str):
         """Inicializa el solver con la API key de Gemini."""
         genai.configure(api_key=api_key)
-        # Usar Gemini 3 Flash - el modelo más reciente
+        # Usar Gemini 3 Flash - el modelo más reciente para texto rápido
         self.model = genai.GenerativeModel('gemini-3-flash-preview')
-        # Modelo avanzado para preguntas difíciles
-        self.advanced_model = genai.GenerativeModel('gemini-3-pro-preview')
+        # Modelo avanzado para imágenes y preguntas difíciles
+        self.advanced_model = genai.GenerativeModel('gemini-3.1-pro-preview')
         self.using_advanced = False
-        print("[INFO] Gemini API configurada con modelo gemini-3-flash-preview")
+        print("[INFO] Gemini API configurada con modelo texto: 3-flash-preview, visión: 3.1-pro-preview")
     
     def switch_to_advanced_model(self):
         """Cambia temporalmente al modelo avanzado para preguntas difíciles."""
@@ -45,7 +45,8 @@ class GeminiSolver:
                 "data": base64.b64encode(screenshot_bytes).decode()
             }
             
-            active_model = self.get_active_model()
+            # Siempre usar el modelo avanzado (Pro) para interpretar imágenes por su mayor precisión
+            active_model = self.advanced_model
             # Configure request options for timeout
             # Note: google.generativeai uses 'request_options'
             response = active_model.generate_content(
@@ -146,7 +147,10 @@ NO incluyas ninguna explicación. Solo RESPUESTA y TEXTO.
 """
         
         try:
-            response = self.get_active_model().generate_content(prompt)
+            response = self.get_active_model().generate_content(
+                prompt,
+                request_options={"timeout": 45}
+            )
             result_text = response.text
             
             print(f"[DEBUG] Respuesta de Gemini:\n{result_text}")
@@ -213,7 +217,7 @@ NO incluyas ninguna explicación. Solo RESPUESTA y TEXTO.
             print("[DEBUG] Enviando audio a Gemini (con timeout de 60s)...")
             response = active_model.generate_content(
                 [prompt, audio_part],
-                request_options={"timeout": 60}  # Timeout de 60 segundos
+                request_options={"timeout": 90}  # Aumentado a 90 segundos
             )
             result_text = response.text
             
@@ -320,7 +324,10 @@ Si hay opciones o respuestas visibles, incluye cuál es la correcta.
                 "data": base64.b64encode(screenshot_bytes).decode()
             }
             
-            response = self.get_active_model().generate_content([prompt, image_part])
+            response = self.get_active_model().generate_content(
+                [prompt, image_part],
+                request_options={"timeout": 60}
+            )
             result_text = response.text
             
             print(f"[DEBUG] Respuesta de Gemini (análisis desconocido):\n{result_text}")

@@ -20,14 +20,19 @@ from question_solvers import QuestionSolvers
 class ExamAgent:
     """Agente de IA para resolver exámenes automáticamente."""
     
-    def __init__(self, config_path: str = "config.json"):
+    def __init__(self, config_path: str = "config.json", agent_id: str = None, coordinator = None):
         """Inicializa el agente con la configuración."""
         # Cargar configuración
         self.config_path = config_path
         self.config = self._load_config(config_path)
         
-        # Inicializar componentes base
-        self.browser = BrowserController(headless=False)
+        # Multi-agente
+        self.agent_id = agent_id or f"Agent-Solo"
+        self.coordinator = coordinator
+        self.multi_agent_mode = coordinator is not None
+        
+        # Inicializar componentes base (pasar agent_id al navegador)
+        self.browser = BrowserController(headless=False, agent_id=self.agent_id)
         self.solver = GeminiSolver(api_key=self.config["gemini_api_key"])
         
         # Inicializar módulos de lógica
@@ -40,8 +45,9 @@ class ExamAgent:
         self.questions_answered = 0
         self.last_question_hash = None
         self.consecutive_repeats = 0
+        self.current_activity_key = None
         
-        print("[INFO] Agente inicializado (Modular)")
+        print(f"[INFO] {self.agent_id} inicializado (Multi-Agente: {self.multi_agent_mode})")
 
     def _load_config(self, path: str) -> dict:
         """Carga la configuración desde un archivo JSON."""
@@ -109,6 +115,9 @@ class ExamAgent:
                 success = self.solvers.solve_sentence_completion(question_text)
             elif question_type == "sentence_ordering":
                 success = self.solvers.solve_sentence_ordering(question_text)
+            elif question_type == "sentence_join":
+                # DRAW A LINE TO JOIN - similar a text_match pero puede estar completado
+                success = self.solvers.solve_sentence_join(question_text)
             else:
                 success = self.solvers.solve_with_screenshot(question_text)
             
@@ -143,15 +152,46 @@ class ExamAgent:
                 if "dashboard" not in self.browser.page.url and "autoaprendizaje" in self.browser.page.url:
                     pass # Ya manejado por find_incomplete_module parcialmente o el flujo
                 
-                # Buscar módulo incompleto
-                module = self.navigator.find_incomplete_module(exclude_modules=processed_modules)
+                # NUEVO: Limpiar skip lists de actividades que hicieron timeout
+                if self.multi_agent_mode and self.coordinator:
+                    try:
+                        timedout_activities = self.coordinator.get_timedout_activity_names()
+                        if timedout_activities:
+                            for m_key in skipped_activities_per_module:
+                                # Para cada actividad con timeout, extraer el nombre de actividad
+                                # activity_key format: "MODULE X | UNIT Y (Z)_activityname"
+                                for timeout_key in timedout_activities:
+                                    # Extraer nombre de actividad (última parte después de _)
+                                    parts = timeout_key.rsplit('_', 1)
+                                    if len(parts) == 2 and parts[0] == m_key:
+                                        activity_name = parts[1]
+                                        if activity_name in skipped_activities_per_module[m_key]:
+                                            print(f"[{self.agent_id}] 🔓 Limpiando skip para '{activity_name}' (timeout detectado)")
+                                            skipped_activities_per_module[m_key].discard(activity_name)
+                    except Exception as e:
+                        print(f"[WARNING] Error limpiando skip lists: {e}")
                 
-                if not module:
+                # Buscar módulos incompletos
+                incomplete_modules = self.navigator.find_incomplete_module(exclude_modules=processed_modules)
+
+                
+                if not incomplete_modules:
                      current_url = self.browser.page.url.lower()
                      
-                     # Check connection lost / login page
-                     if "signin" in current_url or "login" in current_url:
-                         print("[WARNING] Redirección detectada a LOGIN. Intentando recuperar sesión...")
+                     # Check connection lost / login page / homepage redirect
+                     if "signin" in current_url or "login" in current_url or current_url.rstrip("/").endswith(":8443"):
+                         print("[WARNING] Redirección detectada (Login/Homepage). Intentando recuperar sesión...")
+                         
+                         # Cerrar modal de "Bienvenidos" si existe
+                         try:
+                             cerrar_btn = self.browser.page.query_selector("button:has-text('Cerrar')")
+                             if cerrar_btn and cerrar_btn.is_visible():
+                                 cerrar_btn.click()
+                                 self.browser.sleep(0.5)
+                                 print("[INFO] Modal 'Bienvenidos' cerrado")
+                         except:
+                             pass
+                         
                          if self.navigator.login():
                              continue
                          else:
@@ -161,47 +201,112 @@ class ExamAgent:
                      # Check if we are stuck on error page or something else
                      if "dashboard" not in current_url and "autoaprendizaje" not in current_url:
                           print(f"[WARNING] No se encontraron módulos y la URL es sospechosa ({current_url}).")
-                          print("[INFO] REGLA DE RECUPERACIÓN: Forzando reinicio total en LOGIN...")
+                          print("[INFO] REGLA DE RECUPERACIÓN: Intentando ir al DASHBOARD...")
                           
                           try:
-                              # Forzar navegación al LOGIN para reiniciar todo el proceso
-                              login_url = self.config.get("login_url", "https://aulaslenguas.utm.edu.ec:8443/signin")
-                              self.browser.page.goto(login_url)
+                              dashboard_url = self.config.get("dashboard_url", "https://aulaslenguas.utm.edu.ec:8443/dashboard")
+                              if "/signin" in dashboard_url:
+                                   dashboard_url = dashboard_url.replace("/signin", "/dashboard")
+
+                              self.browser.page.goto(dashboard_url)
                               self.browser.sleep(5)
-                              
-                              # Limpiar estado para que re-escanee todo desde cero
                               processed_modules.clear()
                               continue 
                           except:
                               pass
 
-                     print("[INFO] ¡Todos los módulos están completos!")
-                     break
+                     print(f"[{self.agent_id}] 💤 No se encontraron módulos incompletos. Esperando 30s...")
+                     processed_modules.clear()
+                     skipped_activities_per_module.clear()
+                     self.browser.sleep(30)
+                     continue
+
+                # Seleccionar un módulo y actividad válida
+                selected_module = None
+                selected_activity = None
+
+                for mod in incomplete_modules:
+                    m_key = mod['title']
+                    if m_key not in skipped_activities_per_module:
+                        skipped_activities_per_module[m_key] = set()
+                    
+                    # Buscar actividad
+                    act = self.navigator.find_incomplete_activity(
+                        mod["element"],
+                        skip_activities=skipped_activities_per_module[m_key]
+                    )
+                    
+                    if not act:
+                        print(f"[INFO] Módulo {mod['title']} ya no tiene actividades. Marcando procesado.")
+                        processed_modules.add(mod['title'])
+                        continue
+                    
+                    if act.get("status") == "busy":
+                        print(f"[{self.agent_id}] Módulo {mod['title']} ocupado. Probando siguiente...")
+                        processed_modules.add(mod['title'])
+                        continue
+                    
+                    # Encontramos trabajo!
+                    selected_module = mod
+                    selected_activity = act
+                    break
                 
-                module_key = module['title']
-                
-                if module_key not in skipped_activities_per_module:
-                    skipped_activities_per_module[module_key] = set()
-                
-                # Buscar actividad incompleta
-                activity = self.navigator.find_incomplete_activity(
-                    module["element"],
-                    skip_activities=skipped_activities_per_module[module_key]
-                )
-                
-                if not activity:
-                    print(f"[INFO] Módulo {module['title']} no tiene más actividades disponibles")
-                    processed_modules.add(module['title'])
+                if not selected_activity:
+                    print(f"[{self.agent_id}] 💤 Todos los módulos incompletos están ocupados por otros agentes. Esperando 15s...")
+                    self.browser.sleep(15)
                     continue
+
+                # Proceder con la actividad encontrada
+                module = selected_module
+                module_key = module['title']
+                activity = selected_activity
+                self.current_activity = activity
+                activity_key = f"{module_key}_{activity['name']}"
                 
-                self.current_activity = activity # Optional tracking
-                activity_key = f"{module['title']}_{activity['name']}"
+                # MULTI-AGENTE: Intentar reclamar actividad
+                if self.multi_agent_mode:
+                    # Registrar si es nueva
+                    self.coordinator.register_activity(activity_key)
+                    
+                    # Intentar reclamar
+                    if not self.coordinator.claim_activity(self.agent_id, activity_key):
+                        # Verificar si fue rechazado por "Completada" (approvals >= 4)
+                        # PERO la plataforma dice que está incompleta (< 100%)
+                        progress = activity.get('progress', 0)
+                        if progress < 100:
+                            coordinator_approvals = self.coordinator.get_activity_progress(activity_key)
+                            if coordinator_approvals >= 4:
+                                print(f"[{self.agent_id}] ⚠️ DISCUSIÓN: Plataforma dice {progress}% pero Coordinador dice {coordinator_approvals}/4 completados.")
+                                print(f"[{self.agent_id}] 🔄 FORZANDO RESET en Coordinador para sincronizar con realidad...")
+                                self.coordinator.force_reset_status(activity_key, f"Plataforma {progress}% vs Coordinador {coordinator_approvals}/4")
+                                
+                                # Reintentar claim
+                                if self.coordinator.claim_activity(self.agent_id, activity_key):
+                                    print(f"[{self.agent_id}] ✅ Reclamada tras reset: {activity_key}")
+                                    self.current_activity_key = activity_key
+                                else:
+                                     print(f"[{self.agent_id}] ❌ Aún no disponible tras reset (quizás ocupada por otro)")
+                                     skipped_activities_per_module[module_key].add(activity['name'])
+                                     continue
+                            else:
+                                print(f"[{self.agent_id}] Actividad {activity_key} no disponible (ocupada por otros)")
+                                skipped_activities_per_module[module_key].add(activity['name'])
+                                continue
+                        else:
+                            print(f"[{self.agent_id}] Actividad {activity_key} no disponible (completa)")
+                            skipped_activities_per_module[module_key].add(activity['name'])
+                            continue
+                    
+                    self.current_activity_key = activity_key
+                    print(f"[{self.agent_id}] ✅ Reclamada: {activity_key}")
                 
                 if activity_key not in self.activity_attempts:
                     self.activity_attempts[activity_key] = {"attempts": 0, "completed": False}
                 
                 if self.activity_attempts[activity_key]["completed"]:
                     print(f"[INFO] Actividad '{activity['name']}' ya completada anteriormente. Saltando...")
+                    if self.multi_agent_mode and self.current_activity_key:
+                        self.coordinator.release_activity(self.agent_id, self.current_activity_key, "Ya completada localmente")
                     skipped_activities_per_module[module_key].add(activity['name'])
                     continue
                 
@@ -209,7 +314,9 @@ class ExamAgent:
                 max_attempts = self._get_max_attempts(attempts_done)
                 
                 if attempts_done >= max_attempts:
-                    print(f"[WARNING] Actividad '{activity['name']}' alcanzó {attempts_done} intentos sin completarse.")
+                    print(f"[WARNING] Actividad '{activity['name']}' alcanzó {attempts_done} intentos sin completarse. Saltando...")
+                    if self.multi_agent_mode and self.current_activity_key:
+                        self.coordinator.release_activity(self.agent_id, self.current_activity_key, f"Max intentos ({attempts_done})")
                     skipped_activities_per_module[module_key].add(activity['name'])
                     continue
                 
@@ -219,6 +326,8 @@ class ExamAgent:
                 # Iniciar actividad
                 if not self.navigator.click_activity_and_start(activity):
                     print("[ERROR] No se pudo iniciar la actividad")
+                    if self.multi_agent_mode and self.current_activity_key:
+                        self.coordinator.release_activity(self.agent_id, self.current_activity_key, "Error al iniciar UI")
                     continue
                 
                 # Esperar carga
@@ -236,6 +345,11 @@ class ExamAgent:
                         # FALLBACK: Return to Dashboard if stuck
                         if stuck_counter >= 3:
                             print("[ERROR] Atascado en la misma pregunta 3 veces. Ejecutando FALLBACK a DASHBOARD...")
+                            
+                            # MULTI-AGENTE: Liberar actividad antes de salir
+                            if self.multi_agent_mode and self.current_activity_key:
+                                self.coordinator.release_activity(self.agent_id, self.current_activity_key, "Atascado - fallback")
+                            
                             try:
                                 # Start fresh
                                 if "dashboard_url" in self.config:
@@ -257,11 +371,36 @@ class ExamAgent:
                         stuck_counter = 0
                         questions_in_activity += 1
                         self.questions_answered += 1
+                        
+                        # MULTI-AGENTE: Heartbeat para evitar timeout
+                        if self.multi_agent_mode and self.current_activity_key:
+                            current, total = self.navigator.get_question_progress()
+                            self.coordinator.update_heartbeat(self.agent_id, self.current_activity_key, 
+                                                             current or questions_in_activity, total or 10)
                     
                     if not self.navigator.has_next_question():
                         break
                     
                     self.browser.sleep(1)
+                
+                # MULTI-AGENTE: Solo registrar aprobación si REALMENTE se completó
+                is_success = self.navigator.is_activity_complete()
+                
+                if self.multi_agent_mode and self.current_activity_key and questions_in_activity > 0:
+                    if is_success:
+                        self.coordinator.complete_approval(self.agent_id, self.current_activity_key)
+                        print(f"[{self.agent_id}] ✅ Aprobación confirmada y registrada en coordinador.")
+                    else:
+                        print(f"[{self.agent_id}] ⚠️ Actividad interrumpida o incompleta. NO se registra aprobación.")
+                    
+                    # Verificar si ya tiene 4/4
+                    approvals = self.coordinator.get_activity_progress(self.current_activity_key)
+                    if approvals >= 4:
+                        print(f"[{self.agent_id}] 🎉 Actividad {activity_key} COMPLETADA 100% (4/4)")
+                        self.coordinator.release_activity(self.agent_id, self.current_activity_key, "Completada 100%")
+                        self.activity_attempts[activity_key]["completed"] = True
+                    else:
+                        print(f"[{self.agent_id}] Aprobación registrada: {approvals}/4 para {activity_key}")
                 
                 # Volver al dashboard y verificar
                 self.browser.sleep(2)
@@ -320,8 +459,10 @@ class ExamAgent:
             traceback.print_exc()
         finally:
             print("[INFO] El navegador permanecerá abierto")
-            input("Presiona Enter para cerrar el navegador...")
-            self.browser.close()
+            # input("Presiona Enter para cerrar el navegador...") # REMOVED to prevent EOFError in subprocess
+            # self.browser.close() # Optional: decide if we want to close or keep open. User prefers open usually but for multi-agent maybe close?
+            # For now just keep open and do nothing, but don't block.
+            pass
 
 
 if __name__ == "__main__":

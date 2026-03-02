@@ -50,8 +50,13 @@ class QuestionDetector:
             waiting_btns = self.browser.page.query_selector_all("button:has-text('Waiting answer')")
             opt_btns = self.browser.page.query_selector_all("button.opt-1") # Clase común en estas zonas
             
+            # NUEVO: Detectar "DRAW A LINE TO JOIN" - tiene opt-1 buttons pero puede no tener Waiting answer
+            h2_text = self.get_question_text().lower()
+            if "draw a line" in h2_text or "join the sentences" in h2_text:
+                # Es un tipo de matching de oraciones - puede estar completo o no
+                return "sentence_join"
+            
             if len(waiting_btns) > 0 or (len(opt_btns) >= 3 and self.browser.page.query_selector("img")):
-                h2_text = self.get_question_text().lower()
                 is_text_match = (
                     ("match the sentence" in h2_text and "option" in h2_text) or
                     ("complete the questions" in h2_text and "verbs" in h2_text) or

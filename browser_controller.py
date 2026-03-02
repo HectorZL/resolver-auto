@@ -49,13 +49,28 @@ def kill_edge_processes():
 class BrowserController:
     """Controlador con múltiples estrategias de conexión."""
     
-    def __init__(self, headless: bool = False):
+    def __init__(self, headless: bool = False, agent_id: str = None):
         self.headless = headless
+        self.agent_id = agent_id or "Agent-Solo"
         self.playwright = None
         self.browser: Browser = None
         self.context: BrowserContext = None
         self.page: Page = None
         self.edge_process = None
+        
+        # Puerto CDP único por agente (9222 + hash del agent_id)
+        base_port = 9222
+        if agent_id:
+            # Generar offset basado en el número del agente
+            import re
+            match = re.search(r'(\d+)', agent_id)
+            if match:
+                agent_num = int(match.group(1))
+                self.debug_port = base_port + agent_num
+            else:
+                self.debug_port = base_port
+        else:
+            self.debug_port = base_port
         
     def start(self) -> Page:
         """Inicia Edge - intenta CDP primero, luego fallback."""
@@ -70,28 +85,28 @@ class BrowserController:
                 print("[INFO] Navegador ya activo, reutilizando sesión.")
                 return self.page
             except:
-                print("[WARNING] Sesión anterior muerta, reiniciando...")
                 self.close()
                 if self.playwright is None:
                      self.playwright = sync_playwright().start()
         
-        # Cerrar todos los Edge existentes
-        kill_edge_processes()
+        # Solo cerrar Edge en modo solo (no multi-agente)
+        # En multi-agente cada agente usa su propio puerto y directorio
+        if self.agent_id == "Agent-Solo":
+            kill_edge_processes()
         
         # Ruta de Edge
         edge_path = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
         if not os.path.exists(edge_path):
             edge_path = r"C:\Program Files\Microsoft\Edge\Application\msedge.exe"
         
-        print(f"[INFO] Usando Edge en: {edge_path}")
+        print(f"[{self.agent_id}] Usando Edge en: {edge_path}")
+        print(f"[{self.agent_id}] Puerto CDP: {self.debug_port}")
         
-        debug_port = 9222
-        
-        # Verificar si ya hay un Edge con debugging
-        if is_port_open(debug_port):
-            print(f"[INFO] Detectado Edge existente en puerto {debug_port}")
+        # Verificar si ya hay un Edge con debugging en ESTE puerto
+        if is_port_open(self.debug_port):
+            print(f"[{self.agent_id}] Detectado Edge existente en puerto {self.debug_port}")
             try:
-                self.browser = self.playwright.chromium.connect_over_cdp(f"http://127.0.0.1:{debug_port}")
+                self.browser = self.playwright.chromium.connect_over_cdp(f"http://127.0.0.1:{self.debug_port}")
                 contexts = self.browser.contexts
                 if contexts:
                     self.context = contexts[0]
@@ -100,20 +115,24 @@ class BrowserController:
                 else:
                     self.context = self.browser.new_context()
                     self.page = self.context.new_page()
-                print("[SUCCESS] Conectado a Edge existente!")
+                print(f"[{self.agent_id}] ✅ Conectado a Edge existente!")
                 return self.page
             except Exception as e:
-                print(f"[WARNING] Error conectando a Edge existente: {e}")
+                print(f"[{self.agent_id}] Error conectando a Edge existente: {e}")
         
-        # Intentar lanzar Edge con debugging
-        print("[INFO] Lanzando Edge con debugging...")
-        print("[INFO] Si ya tienes Edge abierto, ciérralo primero.")
+        # Intentar lanzar Edge con debugging en puerto único
+        print(f"[{self.agent_id}] Lanzando Edge con debugging en puerto {self.debug_port}...")
+        
+        # Directorio de datos único por agente
+        user_data_dir = os.path.join(os.getcwd(), ".browser_data", self.agent_id)
+        os.makedirs(user_data_dir, exist_ok=True)
         
         try:
-            # Lanzar Edge
+            # Lanzar Edge con directorio de datos único
             cmd = [
                 edge_path,
-                f"--remote-debugging-port={debug_port}",
+                f"--remote-debugging-port={self.debug_port}",
+                f"--user-data-dir={user_data_dir}",
                 "--no-first-run",
                 "--no-default-browser-check",
                 "--disable-blink-features=AutomationControlled",
@@ -127,18 +146,18 @@ class BrowserController:
             )
             
             # Esperar que el puerto esté disponible
-            print("[INFO] Esperando que Edge inicie...")
+            print(f"[{self.agent_id}] Esperando que Edge inicie...")
             for i in range(20):  # Hasta 20 segundos
-                if is_port_open(debug_port):
-                    print(f"[INFO] Puerto {debug_port} abierto!")
+                if is_port_open(self.debug_port):
+                    print(f"[{self.agent_id}] ✅ Puerto {self.debug_port} abierto!")
                     break
                 time.sleep(1)
                 if i % 5 == 0:
-                    print(f"[INFO] Esperando... ({i}s)")
+                    print(f"[{self.agent_id}] Esperando... ({i}s)")
             
-            if is_port_open(debug_port):
-                print(f"[INFO] Conectando via CDP...")
-                self.browser = self.playwright.chromium.connect_over_cdp(f"http://127.0.0.1:{debug_port}")
+            if is_port_open(self.debug_port):
+                print(f"[{self.agent_id}] Conectando via CDP...")
+                self.browser = self.playwright.chromium.connect_over_cdp(f"http://127.0.0.1:{self.debug_port}")
                 contexts = self.browser.contexts
                 if contexts:
                     self.context = contexts[0]
@@ -147,13 +166,13 @@ class BrowserController:
                 else:
                     self.context = self.browser.new_context()
                     self.page = self.context.new_page()
-                print("[SUCCESS] Conectado via CDP!")
+                print(f"[{self.agent_id}] ✅ Conectado via CDP!")
                 return self.page
             else:
                 raise Exception("Puerto no disponible")
                 
         except Exception as e:
-            print(f"[WARNING] CDP falló: {e}")
+            print(f"[{self.agent_id}] CDP falló: {e}")
             print("[INFO] Usando método alternativo (launch normal)...")
             
             # Fallback: launch normal con stealth

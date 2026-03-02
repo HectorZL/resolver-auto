@@ -102,6 +102,26 @@ class ModuleNavigator:
         print("\n[DEBUG] ========== BUSCANDO MÓDULOS INCOMPLETOS ==========")
         
         try:
+            # Detectar si estamos en la página principal sin sesión (redirect por session loss)
+            current_url = self.browser.page.url.lower()
+            if current_url.rstrip("/").endswith(":8443") or ("/signin" in current_url and "dashboard" not in current_url):
+                print("[WARNING] Detectada redirección a pagina principal. Intentando login...")
+                # Cerrar modal de "Bienvenidos" si existe
+                try:
+                    cerrar_btn = self.browser.page.query_selector("button:has-text('Cerrar')")
+                    if cerrar_btn and cerrar_btn.is_visible():
+                        cerrar_btn.click()
+                        self.browser.sleep(0.5)
+                        print("[INFO] Modal 'Bienvenidos' cerrado")
+                except:
+                    pass
+                # Intentar login
+                if self.login():
+                    self.browser.sleep(2)
+                else:
+                    print("[ERROR] No se pudo hacer login tras redirección.")
+                    return []
+            
             # Verificar que estamos en la página correcta (Dashboard o Autoaprendizaje)
             # A veces la URL cambia o carga lento
             
@@ -133,61 +153,161 @@ class ModuleNavigator:
             print(f"[DEBUG] Encontrados {len(modules)} contenedores de módulos")
             print(f"[DEBUG] Módulos a excluir: {exclude_modules}")
             
-            all_modules_info = []  # Para logging al final
+            candidates = []
+            all_modules_info = []
             
             for idx, module in enumerate(modules):
-                # Obtener el título y progreso
+                # ... loop logic remains the same ...
                 title_el = module.query_selector(SELECTORS["module_title"])
-                
                 if not title_el:
-                    print(f"[DEBUG] Módulo {idx}: ⚠️ Sin título, saltando")
+                    for fallback in ["h2", "h3", "h1", "span"]:
+                        title_el = module.query_selector(fallback)
+                        if title_el and title_el.inner_text().strip():
+                            break
+                if not title_el or not title_el.inner_text().strip():
                     continue
-                    
-                title = title_el.inner_text()
-                # print(f"[DEBUG] Módulo {idx}: '{title}'") # Verbose
+                title = title_el.inner_text().strip()
+                original_title = title
+                # Duplicate naming logic
+                count = 0
+                for m_prev in modules[:idx+1]:
+                    t_prev_el = m_prev.query_selector(SELECTORS["module_title"])
+                    if not t_prev_el:
+                        for fallback in ["h2", "h3", "h1", "span"]:
+                            t_prev_el = m_prev.query_selector(fallback)
+                            if t_prev_el and t_prev_el.inner_text().strip(): break
+                    t_prev = t_prev_el.inner_text().strip() if t_prev_el else ""
+                    if t_prev == original_title: count += 1
+                if count > 1: title = f"{original_title} ({count})"
+
+                if title in exclude_modules or original_title in exclude_modules or \
+                   any(x in title.lower() for x in ["total progress", "navegación", "ajustes", "salir", "dashboard", "resultados", "results from"]):
+                    continue
                 
-                # Saltar módulos excluidos
-                if title in exclude_modules:
-                    # print(f"[DEBUG] Módulo {idx} '{title}': ❌ EN LISTA DE EXCLUSIÓN")
+                # IMPORTANT: Also filter out generic activity names that are mistakenly picked up as modules because of class reuse
+                if title.lower() in ["writing", "reading", "vocabulary", "grammar", "listening", "speaking", "practice", "quiz"]:
                     continue
-                    
+                
+                # Progress extraction
                 progress_text = ""
+                progress_el = module.query_selector(SELECTORS.get("module_progress", ""))
+                if progress_el: progress_text = progress_el.inner_text().strip()
+                if not progress_text or "%" not in progress_text:
+                    spans = module.query_selector_all("span")
+                    for span in spans:
+                        text = span.inner_text().strip()
+                        if "%" in text:
+                            if "completed" in text.lower() or "progress" in text.lower() or "grade" in text.lower():
+                                progress_text = text
+                                break
+                            if not progress_text: progress_text = text
                 
-                # Buscar el texto de progreso
-                spans = module.query_selector_all("span")
-                for span in spans:
-                    text = span.inner_text()
-                    if "%" in text and "completed" in text.lower():
-                        progress_text = text
-                        break
+                if not progress_text: continue
                 
-                if not progress_text:
-                    print(f"[DEBUG] Módulo {idx} '{title}': ⚠️ Sin  texto de progreso")
-                    continue
-                
-                # Extraer porcentaje
                 match = re.search(r'(\d+)%', progress_text)
                 if match:
                     progress = int(match.group(1))
-                    status = "🟢 COMPLETO" if progress == 100 else "🟡 INCOMPLETO"
                     all_modules_info.append(f"  - {title}: {progress}%")
-                    
                     if progress < 100:
-                        print(f"\n[INFO] ✅ Seleccionado módulo incompleto: {title} ({progress}%)")
-                        return {
+                        candidates.append({
                             "title": title,
                             "progress": progress,
                             "element": module
-                        }
-                else:
-                    print(f"[DEBUG] Módulo {idx} '{title}': ⚠️ No se pudo extraer % de '{progress_text}'")
-            
+                        })
+
+            if candidates:
+                # To prevent all agents from hitting the exact same module at the same time:
+                # 1. Sort by progress descending (so we prioritize what's already started)
+                # 2. But shuffle modules that have the EXACT same progress score
+                import random
+                from collections import defaultdict
+                
+                # Group by progress
+                progress_bins = defaultdict(list)
+                for c in candidates:
+                    progress_bins[c['progress']].append(c)
+                
+                # Shuffle within each bin and re-flatten
+                shuffled_candidates = []
+                # Sort the keys (progress levels) descending
+                for prog in sorted(progress_bins.keys(), reverse=True):
+                    current_bin = progress_bins[prog]
+                    random.shuffle(current_bin)
+                    shuffled_candidates.extend(current_bin)
+                    
+                candidates = shuffled_candidates
+                print(f"\n[INFO] Encontrados {len(candidates)} módulos incompletos.")
+                return candidates
+
             print(f"\n[INFO] ❌ No se encontraron módulos incompletos")
             print(f"[DEBUG] Resumen de todos los módulos:")
             for info in all_modules_info:
                 print(info)
             print(f"[DEBUG] ===================================================\n")
-            return None
+            
+            # --- MANEJO DE NAVEGACIÓN ENTRE LIBROS ---
+            # Si estamos aquí, es porque no hay módulos válidos o todos están al 100% en esta pantalla.
+            # Intentar navegar a otros libros en el panel lateral.
+            print("[INFO] Explorando panel de navegación lateral para otros 'BOOKS'...")
+            try:
+                # Buscar todos los elementos que parecen enlaces a libros (ej: "BOOK 1", "BOOK 2")
+                book_links = self.browser.page.locator("text=/^BOOK [0-9]+$/i").all()
+                if book_links:
+                    print(f"[DEBUG] Se encontraron {len(book_links)} enlaces de libros detectados.")
+                    
+                    # Identificar el libro activo (suele tener diferente clase CSS, o simplemente probamos todos)
+                    # Primero intentamos averiguar si hay un indicador visible de "completado"
+                    # o si estamos actualmente en él (ej. título de página coincide).
+                    for link in book_links:
+                        link_text = link.inner_text().strip()
+                        # Clickear todos los links de libros 1 por 1 buscando uno que tenga módulos al abrirse
+                        # Haremos un simple check de visibilidad de progreso incompleto en la derecha.
+                        print(f"[INFO] Revisando '{link_text}'...")
+                        link.click()
+                        self.browser.sleep(3) # Esperar a que los módulos carguen
+                        
+                        # Check rapidly if this new book has incomplete modules
+                        new_modules = self.browser.page.query_selector_all(SELECTORS["module_container"])
+                        has_incomplete = False
+                        for m in new_modules:
+                            t_el = m.query_selector(SELECTORS["module_title"])
+                            if not t_el:
+                                for fallback in ["h2", "h3", "h1", "span"]:
+                                    t_el = m.query_selector(fallback)
+                                    if t_el and t_el.inner_text().strip(): break
+                            m_title = t_el.inner_text().strip() if t_el else ""
+                            
+                            # Skip widgets
+                            if any(x in m_title.lower() for x in ["total progress", "navegación", "dashboard", "results from"]) or m_title.lower() in ["writing", "reading", "vocabulary", "grammar", "listening", "speaking"]:
+                                continue
+                                
+                            p_el = m.query_selector(SELECTORS.get("module_progress", ""))
+                            p_text = p_el.inner_text().strip() if p_el else ""
+                            if not p_text or "%" not in p_text:
+                                for span in m.query_selector_all("span"):
+                                    t = span.inner_text().strip()
+                                    if "%" in t: 
+                                        p_text = t
+                                        break
+                            
+                            if p_text:
+                                p_match = re.search(r'(\d+)%', p_text)
+                                if p_match and int(p_match.group(1)) < 100:
+                                    # Encontramos un módulo incompleto!
+                                    print(f"[SUCCESS] Se encontró trabajo en '{link_text}' - {m_title} ({p_match.group(1)}%)")
+                                    has_incomplete = True
+                                    break
+                                    
+                        if has_incomplete:
+                            # Hacer llamada recursiva ahora que la página tiene módulos
+                            print("[INFO] Reiniciando búsqueda en el nuevo libro...")
+                            return self.find_incomplete_module(exclude_modules=exclude_modules)
+                            
+                print("[INFO] Se revisaron todos los libros. No hay más trabajo pendiente.")
+            except Exception as e:
+                print(f"[WARNING] Error explorando otros libros: {e}")
+                
+            return []
             
         except Exception as e:
             print(f"[ERROR] Error buscando módulos: {e}")
@@ -234,7 +354,7 @@ class ModuleNavigator:
                 
                 # Verificar si el botón está deshabilitado
                 button = activity.query_selector("button")
-                is_disabled = button.get_attribute("disabled") if button else None
+                is_disabled = button.get_attribute("disabled") is not None if button else False
                 disabled_text = "🔒 BLOQUEADA" if is_disabled else "🔓 disponible"
                 
                 # Determinar razón de skip
@@ -249,10 +369,14 @@ class ModuleNavigator:
                     skip_reason = f"⏭️ Tipo no soportado"
                 elif is_disabled:
                     skip_reason = "🔒 Botón deshabilitado"
+                
+                if skip_reason:
+                     print(f"[DEBUG] SKIPPING {name}: {skip_reason}")
                 elif height >= 100:
                     skip_reason = "✅ Ya completa (100%)"
                 
                 status = skip_reason if skip_reason else "🎯 CANDIDATA"
+                print(f"[DEBUG] Actividad: '{name}' | Progreso: {height}% | Disabled: {is_disabled} | Status: {status}")
                 all_activities_info.append(f"  - {name}: {height}% ({status})")
                 
                 if not skip_reason:
@@ -279,6 +403,53 @@ class ModuleNavigator:
                 print(f"[INFO] ✅ Seleccionada actividad incompleta (Mayor Progreso): {best['name']} ({best['progress']}%)")
                 return best
             
+            # Verificar si no hay candidatos porque están todos en skip_activities (ocupados)
+            busy_count = 0
+            for idx, activity in enumerate(activities):
+                name_el = activity.query_selector(SELECTORS["activity_name"])
+                if name_el:
+                    name = name_el.inner_text().lower()
+                    if name in skip_activities:
+                        # Es una actividad que el agente intentó pero estaba ocupada
+                        busy_count += 1
+            
+            if busy_count > 0:
+                # print(f"[DEBUG] Módulo tiene {busy_count} actividades ocupadas por otros agentes.")
+                return {"status": "busy"}
+
+            # FALLBACK: Si el módulo no está al 100% pero no encontramos candidatas,
+            # tal vez sea porque 'listening' u otra actividad crítica aparece como '0%' o sin barra
+            print("[DEBUG] No se encontraron candidatos con progreso > 0. Buscando actividades disponibles (0%)...")
+            for idx, activity in enumerate(activities):
+                 name_el = activity.query_selector(SELECTORS["activity_name"])
+                 if not name_el: continue
+                 name = name_el.inner_text().lower()
+                 
+                 # Si es un target válido y NO está bloqueada y NO está 100%
+                 button = activity.query_selector("button")
+                 is_disabled = button.get_attribute("disabled") is not None if button else False
+                 
+                 # Check progress again
+                 bfill = activity.query_selector(SELECTORS["progress_fill"])
+                 height = 0
+                 if bfill:
+                    style = bfill.get_attribute("style") or ""
+                    match = re.search(r'height:\s*(\d+)%', style)
+                    if match: height = int(match.group(1))
+
+                 if any(key in name for key in self.activities_to_solve) and not is_disabled and height < 100:
+                      if name in skip_activities:
+                          # Ya lo contamos arriba como busy, pero por si acaso
+                          continue
+                      
+                      print(f"[INFO] ⚠️ FALLBACK: Seleccionando actividad '{name}' (0% o invisible) para intentar avanzar.")
+                      return {
+                        "name": name,
+                        "progress": height,
+                        "element": activity,
+                        "button": button
+                    }
+
             print(f"\n[INFO] ❌ No hay más actividades disponibles en este módulo")
             return None
             
@@ -396,9 +567,36 @@ class ModuleNavigator:
         return 0, 0
     
     def has_next_question(self) -> bool:
-        """Verifica si hay otra pregunta disponible con reintentos."""
+        """Verifica si hay otra pregunta disponible con reintentos y avanza si es necesario."""
         print("[DEBUG] Verificando si hay siguiente pregunta...")
         max_retries = 5
+        
+        # Intentar avanzar manualmente si existe botón de "Next" o flechas
+        try:
+            next_selectors = [
+                 "button[aria-label='Next']",
+                 "button[data-action='next']",
+                 "button.next-btn",
+                 "div[title='Next']",
+                 "i.fa-chevron-right",
+                 "i.fa-arrow-right",
+                 "button:has(i.fa-chevron-right)",
+                 ".carousel-control-next",
+                 # Specific to some platforms:
+                 "button:has-text('Next')",
+                 "button:has-text('Continue')"
+            ]
+            
+            for sel in next_selectors:
+                if self.browser.page.query_selector(sel):
+                    if self.browser.page.is_visible(sel):
+                        print(f"[NAV] Encontrado botón de avance '{sel}', haciendo click...")
+                        self.browser.page.click(sel)
+                        self.browser.sleep(1.5)
+                        break
+        except Exception as e:
+            print(f"[WARNING] Error intentando avanzar: {e}")
+
         for i in range(max_retries):
             try:
                 # 1. Verificar visualmente elementos clave

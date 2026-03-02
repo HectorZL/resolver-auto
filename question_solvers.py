@@ -46,21 +46,94 @@ class QuestionSolvers:
         except Exception as e:
             print(f"[ERROR] Saving knowledge: {e}")
 
-    def _get_question_signature(self, text: str, extra_context: str = "") -> str:
-        """Genera un hash único para el texto de la pregunta normalizado, opcionalmente con contexto extra."""
-        normalized_q = re.sub(r'\s+', ' ', text.strip().upper())
+    def _get_question_signature(self, text: str, extra_context: str = "", image_id: str = "") -> str:
+        """Genera una clave legible para la pregunta basada en contexto y opcionalmente un identificador visual.
+        
+        Para preguntas de imagen con TITLE y OPTIONS, usa formato legible.
+        Para otras preguntas, usa un hash MD5 del texto completo.
+        """
         normalized_ctx = re.sub(r'\s+', ' ', extra_context.strip().upper())
-        combined = f"{normalized_q}|{normalized_ctx}"
+        
+        img_suffix = f"|[IMG:{image_id.upper()}]" if image_id else ""
+        
+        # Si el contexto incluye TITLE y OPTIONS, usar formato legible
+        if 'TITLE:' in normalized_ctx and 'OPTIONS:' in normalized_ctx:
+            # Extraer TITLE y OPTIONS para clave legible
+            # Format: "TITLE: X || Q_TEXT: Y || ITEMS: Z || OPTIONS: A | B"
+            parts = normalized_ctx.split('||')
+            title_part = next((p.strip() for p in parts if 'TITLE:' in p), '')
+            q_text_part = next((p.strip() for p in parts if 'Q_TEXT:' in p), '')
+            items_part = next((p.strip() for p in parts if 'ITEMS:' in p), '')
+            options_part = next((p.strip() for p in parts if 'OPTIONS:' in p), '')
+            reading_hash_part = next((p.strip() for p in parts if 'READING_HASH:' in p), '')
+            
+            # Check for inline IMG tag in case it was passed inside extra_context
+            if '[IMG:' in normalized_ctx and not image_id:
+                match = re.search(r'\[IMG:([^\]]+)\]', normalized_ctx)
+                if match:
+                    img_suffix = f"|[IMG:{match.group(1)}]"
+            
+            # Crear clave legible: "VOCAB_BOOK5_MOD1|QText|Items|Options..."
+            title_clean = title_part.replace('TITLE:', '').strip().replace(' ', '_').replace('•', '_')
+            q_text_clean = q_text_part.replace('Q_TEXT:', '').strip()
+            items_clean = items_part.replace('ITEMS:', '').strip()
+            options_clean = options_part.replace('OPTIONS:', '').strip()
+            reading_hash_clean = reading_hash_part.replace('READING_HASH:', '').strip()
+            
+            components = [title_clean]
+            if q_text_clean: components.append(q_text_clean)
+            if reading_hash_clean: components.append(reading_hash_clean)
+            if items_clean: components.append(items_clean)
+            if options_clean: components.append(options_clean)
+            
+            readable_key = "|".join(components) + img_suffix
+            
+            # Limitar longitud y limpiar caracteres problemáticos
+            readable_key = re.sub(r"[^A-Z0-9_|\s'\-\[\]:]", '', readable_key)[:300]
+            return readable_key
+        
+        # Fallback: usar hash para otros casos
+        normalized_q = re.sub(r'\s+', ' ', text.strip().upper())
+        combined = f"{normalized_q}|{normalized_ctx}{img_suffix}"
         return hashlib.md5(combined.encode('utf-8')).hexdigest()
 
-    def learn_from_mistake(self, question_text: str, extra_context: str = ""):
+    def _is_safe_button(self, btn) -> bool:
+        """Verifica que un botón es seguro para clickear (no es Exit, Close, etc)."""
+        try:
+            btn_title = btn.get_attribute("title") or ""
+            btn_class = btn.get_attribute("class") or ""
+            btn_text = btn.inner_text().strip().lower()
+            
+            # NEVER click buttons that are Exit, Close, or navigation
+            danger_words = ["exit", "salir", "close", "cerrar", "skip", "back"]
+            if any(word in btn_title.lower() for word in danger_words):
+                return False
+            if any(word in btn_text for word in danger_words):
+                return False
+            if "text-red" in btn_class:
+                return False
+            if len(btn_text) < 2:  # Skip buttons with empty or very short text
+                return False
+            return True
+        except:
+            return False
+
+    def learn_from_mistake(self, question_text: str, extra_context: str = "", image_id: str = ""):
         """
         Intenta detectar el modal de error, extraer la respuesta correcta y guardarla.
         """
         try:
             # Check for error icon/modal
             error_icon = self.browser.page.locator(".swal2-icon-error")
-            if error_icon.is_visible(timeout=2000):
+            # Locator.is_visible() does not take arguments. Use Page.is_visible(selector) or wait_for.
+            if self.browser.page.is_visible(".swal2-icon-error", timeout=2000):
+                # Esperar un momento para que el contenido del modal cargue completamente
+                self.browser.sleep(0.8)
+                
+                # IMPORTANTE: Siempre aprender, incluso para preguntas de imagen.
+                # El bypass solo aplica para RECUPERAR respuestas del Knowledge Base,
+                # no para GUARDAR las respuestas correctas cuando nos equivocamos.
+
                 print("[LEARNING] Detectado error. Intentando aprender...")
                 
                 # Get the content
@@ -95,7 +168,7 @@ class QuestionSolvers:
                             ]
 
                     if answers_list:
-                        sig = self._get_question_signature(question_text, extra_context)
+                        sig = self._get_question_signature(question_text, extra_context, image_id)
                         self.knowledge[sig] = answers_list
                         self._save_knowledge()
                         print(f"[LEARNING] Aprendido para '{sig}': {answers_list}")
@@ -106,9 +179,9 @@ class QuestionSolvers:
             print(f"[ERROR] Learning failed: {e}")
         return False
 
-    def try_solve_with_knowledge(self, question_text: str, extra_context: str = "") -> Optional[List[str]]:
+    def try_solve_with_knowledge(self, question_text: str, extra_context: str = "", image_id: str = "") -> Optional[List[str]]:
         """Intenta resolver usando conocimiento previo guardado."""
-        sig = self._get_question_signature(question_text, extra_context)
+        sig = self._get_question_signature(question_text, extra_context, image_id)
         if sig in self.knowledge:
             answers = self.knowledge[sig]
             print(f"[KNOWLEDGE] Aplicando respuesta aprendida: {answers}")
@@ -211,13 +284,15 @@ class QuestionSolvers:
                 except: pass
                 
                 if found and not still_visible:
+                    # Pequeña pausa extra para estar seguros de que el overlay desapareció
+                    self.browser.sleep(0.3)
                     return True
                 
                 # Si no encontramos botón pero tampoco hay modal visible (y ya esperamos un poco), asumimos éxito/ausencia
                 if not found and not still_visible and i > 0:
                      return True
 
-                self.browser.sleep(0.1)
+                self.browser.sleep(0.3) # Intervalo más largo para dar tiempo a animaciones (SweetAlert2)
             
             return False
             
@@ -300,23 +375,6 @@ class QuestionSolvers:
                         print("[WARNING] No se encontró el botón 'Ad A'")
                 except Exception as e:
                     print(f"[ERROR] Falló hardcode Ads Software: {e}")
-            
-            if "READ THE AD. WHAT IS IT FOR?" in question_text.upper():
-                print("[OVERRIDE] Detectada pregunta 'Product Sales'. Aplicando respuesta hardcoded.")
-                try:
-                    product_btn = self.browser.page.get_by_text("Product sales", exact=False)
-                    if product_btn.count() > 0:
-                        product_btn.first.click()
-                        self.browser.sleep(0.1)
-                        self._click_check_button()
-                        self.browser.sleep(0.1)
-                        self._click_ok_modal()
-                        print("[SUCCESS] Pregunta contestada via hardcode.")
-                        return True
-                    else:
-                        print("[WARNING] No se encontró el botón 'Product sales'")
-                except Exception as e:
-                     print(f"[ERROR] Falló hardcode Product Sales: {e}")
             # --- HARDCODED ANSWERS END ---
 
             # ====== DETECTAR Y PROCESAR AUDIO (si existe) ======
@@ -371,14 +429,22 @@ class QuestionSolvers:
                             
                             print(f"[INFO] Audio descargado: {len(audio_bytes)} bytes")
                             
-                            # Analizar con Gemini
-                            result = self.solver.analyze_audio_question(audio_bytes, question_text, temp_options)
+                            # Analizar con Gemini (con reintento en caso de error)
+                            try:
+                                result = self.solver.analyze_audio_question(audio_bytes, question_text, temp_options)
+                                if "error" in result:
+                                    print(f"[WARNING] Reintentando análisis de audio tras error: {result['error']}")
+                                    result = self.solver.analyze_audio_question(audio_bytes, question_text, temp_options)
+                            except Exception as e_audio:
+                                print(f"[ERROR] Excepción crítica en análisis de audio: {e_audio}")
+                                result = {"answer_index": -1}
+
                             audio_answer_index = result.get("answer_index", -1)
                             
                             if audio_answer_index >= 0 and audio_answer_index < len(temp_options):
                                 print(f"[INFO] ✅ Gemini sugiere (audio): {temp_options[audio_answer_index]}")
                             else:
-                                print(f"[WARNING] Índice de audio inválido: {audio_answer_index}")
+                                print(f"[WARNING] No se pudo obtener respuesta de audio válida (Índice: {audio_answer_index})")
                                 audio_answer_index = -1
                         else:
                             print("[WARNING] No se pudo extraer URL del audio")
@@ -488,15 +554,103 @@ class QuestionSolvers:
 
             # Include OPTIONS, BREADCRUMBS in the signature (REMOVED COUNTER for better generalization)
             options_text = " | ".join(options)
-            combined_context = f"TITLE: {breadcrumbs} || TEXT: {reading_text[:50]}... || OPTIONS: {options_text}"
+            combined_context = f"TITLE: {breadcrumbs} || OPTIONS: {options_text}"
             
             # Full context for signature generation (uses hash)
-            full_context_for_sig = f"TITLE: {breadcrumbs} || TEXT: {reading_text} || OPTIONS: {options_text}"
-
-            print(f"[DEBUG] Context Signature Data: {combined_context}")
+            # USER REQUEST: Use Title + Question + Options + Counter to improve stability
+            # We also add [AUDIO] tag if detected to distinguish between same text/options with/without audio.
+            audio_tag = "[AUDIO] " if has_audio else ""
+            # CRITICAL FIX: Include question_text to differentiate same-options questions
+            # Truncate question text to 150 chars to keep key manageable but ensure uniqueness at the end of long prompts
+            q_text_short = question_text[:150].upper().replace(" ", "_")
             
-            print("[DEBUG] Step: Checking Knowledge Base...")
-            known_answers = self.try_solve_with_knowledge(question_text, full_context_for_sig)
+            reading_snippet = ""
+            if reading_text:
+                reading_hash = hashlib.md5(reading_text.strip().encode('utf-8')).hexdigest()[:10]
+                reading_snippet = f" || READING_HASH: {reading_hash}"
+                
+            full_context_for_sig = f"{audio_tag}TITLE: {breadcrumbs} || Q_TEXT: {q_text_short}{reading_snippet} || OPTIONS: {options_text}"
+
+            print(f"[DEBUG] Context Signature Data: {full_context_for_sig}")
+            
+            # ======= ROBUST IMAGE DETECTION BEFORE KNOWLEDGE BASE CHECK =======
+            q_lower = question_text.lower()
+            
+            img_selectors = [
+                 "img[alt='Descripción de la imagen']",
+                 ".question-container img",
+                 # buscar cualquier img grande (excluir iconos)
+                 "img:not([src*='logo']):not([src*='icon']):not([src*='avatar']):not([class*='icon']):not([class*='logo'])"
+            ]
+            
+            target_img_locator = None
+            for sel in img_selectors:
+                elements = self.browser.page.locator(sel)
+                try:
+                    count = elements.count()
+                    for i in range(count):
+                        el = elements.nth(i)
+                        if el.is_visible():
+                            # Heurística: si es muy pequeña, ignorar
+                            box = el.bounding_box()
+                            if box and box['width'] > 40 and box['height'] > 40:
+                                target_img_locator = el
+                                break
+                    if target_img_locator:
+                        break
+                except:
+                    continue
+            
+            has_image = target_img_locator is not None
+            
+            # --- NUENO: TOMAR SCREENSHOT PRIMERO PARA OBTENER UN ID ÚNICO ---
+            screenshot = None
+            image_id = ""
+            
+            if has_image:
+                print("[DEBUG] Step: Taking screenshot para análisis visual y caché...")
+                try:
+                    if target_img_locator and target_img_locator.is_visible():
+                        screenshot = target_img_locator.screenshot()
+                        if screenshot:
+                            print("[DEBUG] Step: Screenshot of IMAGE element taken.")
+                except Exception as e:
+                    print(f"[WARNING] Failed to capture screenshot: {e}")
+                    screenshot = None
+                
+                # Fallback contenedor/pantalla
+                if screenshot is None:
+                    try:
+                        container = self.browser.page.locator(".card-body, main, body").first
+                        if container.is_visible():
+                             print("[INFO] Fallback a screenshot del contenedor")
+                             screenshot = container.screenshot()
+                        else:
+                             print("[INFO] Fallback a screenshot de página completa")
+                             screenshot = self.browser.page.screenshot()
+                    except: pass
+                
+                if screenshot is None:
+                    print("[INFO] Screenshot failed, forcing text-only mode")
+                    has_image = False
+                else:
+                    # Generar un hash MD5 a partir de los bytes reales de la imagen
+                    image_id = hashlib.md5(screenshot).hexdigest()
+                    print(f"[INFO] 📸 Pregunta visual detectada. Hash de imagen generado para caché: {image_id}")
+
+
+            # CRITICAL FIX: Skip knowledge base for ANY question that has an image.
+            # Why? Because the knowledge base signature only uses text (Question + Options).
+            # WE NOW HAVE UNIQUE IMAGE IDS (hash de bytes), so we don't strictly *need* to skip, 
+            # we can safely look up the cache using the image_id.
+            skip_knowledge = False if image_id else has_image
+            
+            if skip_knowledge:
+                print("[INFO] 📸 Pregunta con imagen detectada pero sin hash. Analizando visualmente con Gemini.")
+
+            known_answers = None
+            if not skip_knowledge or image_id:
+                known_answers = self.try_solve_with_knowledge(question_text, full_context_for_sig, image_id)
             
             if known_answers:
                  # Standard Multiple Choice usually has one answer in the list
@@ -524,8 +678,8 @@ class QuestionSolvers:
                      self.browser.sleep(0.1)
                      self._click_check_button()
                      self.browser.sleep(0.2)
-                     # Learn again using the SAME context (text + options)
-                     self.learn_from_mistake(question_text, full_context_for_sig) 
+                     # Learn again using the SAME context (text + options) AND image_id
+                     self.learn_from_mistake(question_text, full_context_for_sig, image_id) 
                      self._click_ok_modal()
                      print("[SUCCESS] Pregunta contestada via knowledge.")
                      self.browser.sleep(self.delay)
@@ -534,39 +688,19 @@ class QuestionSolvers:
                      print(f"[WARNING] No se encontró la opción aprendida '{target_ans}' entre {options}")
             
             print("[DEBUG] Step: Knowledge check finished. Proceeding to Gemini...")
-            
-            # Verificar si hay imagen
-            has_image = self.browser.page.query_selector("img[alt='Descripción de la imagen']") is not None
-            
+
             # Detectar tipo de pregunta para ajustar prompt
-            q_lower = question_text.lower()
             is_vocabulary = any(word in q_lower for word in ['similar', 'mean', 'synonym', 'bold word', 'word mean'])
-            is_reading_comprehension = any(word in q_lower for word in ['read the text', 'according to', 'paragraph'])
+            is_reading_comprehension = any(word in q_lower for word in ['read the text', 'according to', 'paragraph', 'read the piece of text', 'paragragh'])
             
             # ====== DECISIÓN: Usar respuesta de AUDIO o llamar a Gemini ======
             if audio_answer_index >= 0:
                 # Ya tenemos la respuesta del audio, usarla directamente
                 answer_index = audio_answer_index
                 print(f"[INFO] 🎵 Usando respuesta del análisis de audio")
-            elif has_image and len(reading_text) < 50:
-                # SOLO tomar screenshot si HAY IMAGEN y NO hay texto suficiente
-                print("[DEBUG] Step: Taking screenshot (imagen real detectada)...")
-                screenshot = None
-                try:
-                    # Intentar screenshot del elemento imagen específico
-                    img_locator = self.browser.page.locator("img[alt='Descripción de la imagen']").first
-                    if img_locator.is_visible():
-                        screenshot = img_locator.screenshot()
-                        if screenshot:
-                            print("[DEBUG] Step: Screenshot of IMAGE element taken.")
-                except Exception as e:
-                    print(f"[WARNING] Failed to capture screenshot: {e}")
-                    screenshot = None
-                
-                # Si screenshot falló, forzar modo solo texto
-                if screenshot is None:
-                    print("[INFO] Screenshot failed, forcing text-only mode")
-                    has_image = False
+            elif has_image:
+                # El screenshot ya se tomó arriba para generar el ID.
+                pass
             else:
                 # MODO SOLO TEXTO - El 90% de las preguntas
                 screenshot = None
@@ -579,12 +713,13 @@ class QuestionSolvers:
 PREGUNTA: {question_text}
 
 OPCIONES:
-{[f"{i}. {opt}" for i, opt in enumerate(options)]}
+{options}
 
 INSTRUCCIONES:
-1. Mira la imagen cuidadosamente (puede ser una carta, email, póster, etc.)
-2. Lee la pregunta y busca la respuesta en la información visual/texto de la imagen.
-3. Responde SOLO con el número de la opción correcta.
+1. Mira la imagen cuidadosamente.
+2. Lee la pregunta y busca la respuesta en la imagen.
+3. Responde EXCLUSIVAMENTE con el TEXTO EXACTO de la opción correcta, envuelto en etiquetas [ANSWER] y [/ANSWER].
+Ejemplo: [ANSWER]{options[0] if options else 'text'}[/ANSWER]
 """
                 elif is_vocabulary or is_reading_comprehension:
                     prompt = f"""PREGUNTA DE COMPRENSIÓN DE LECTURA:
@@ -594,16 +729,13 @@ TEXTO DE LECTURA:
 {reading_text[:2500]}
 
 OPCIONES DISPONIBLES:
-{[f"{i}. {opt}" for i, opt in enumerate(options)]}
+{options}
 
 INSTRUCCIONES:
-- Lee el texto cuidadosamente
-- Busca la palabra o frase mencionada en la pregunta (ej: "moved in")
-- Determina su significado en contexto
-- Selecciona la opción que sea sinónimo o tenga significado similar
-
-Responde SOLO con el NÚMERO de la opción correcta (0, 1, 2, etc.).
-NO des explique nada. SOLO el número."""
+- Lee el texto cuidadosamente y determina la respuesta.
+- Selecciona la opción que sea correcta según el texto.
+- Responde EXCLUSIVAMENTE con el TEXTO EXACTO de la opción correcta, envuelto en etiquetas [ANSWER] y [/ANSWER].
+Ejemplo: [ANSWER]{options[0] if options else 'text'}[/ANSWER]"""
                 else:
                     prompt = f"""PREGUNTA: {question_text}
 
@@ -613,8 +745,8 @@ TEXTO/CONTEXTO:
 OPCIONES: {options}
 
 Analiza el contexto y selecciona la opción correcta.
-Responde SOLO con el número de la opción (0, 1, 2, 3, etc.).
-NO expliques tu respuesta. SOLO envía el número."""
+Responde EXCLUSIVAMENTE con el TEXTO EXACTO de la opción correcta, envuelto en etiquetas [ANSWER] y [/ANSWER].
+Ejemplo: [ANSWER]{options[0] if options else 'text'}[/ANSWER]"""
                 
                 if screenshot:
                     t0 = time.time()
@@ -643,7 +775,7 @@ NO expliques tu respuesta. SOLO envía el número."""
                         try:
                             response = self.solver.model.generate_content(
                                 prompt, 
-                                request_options={"timeout": 20}
+                                request_options={"timeout": 45}
                             )
                             result_text = response.text
                             print(f"[DEBUG] Gemini Text Gen took {time.time()-t0:.2f}s")
@@ -652,19 +784,19 @@ NO expliques tu respuesta. SOLO envía el número."""
                              print("[INFO] Retrying with MINIMAL prompt (Question + Options)...")
                              
                              # MINIMAL PROMPT RETRY
-                             minimal_prompt = f"PREGUNTA: {question_text}\nOPCIONES: {options}\nResponde SOLO con el número de la opción (0, 1, 2...)."
+                             minimal_prompt = f"PREGUNTA: {question_text}\nOPCIONES: {options}\nResponde EXACTAMENTE con el texto de la opción correcta en formato [ANSWER]texto[/ANSWER]."
                              try:
                                  t1 = time.time()
                                  response_retry = self.solver.model.generate_content(
                                      minimal_prompt,
-                                     request_options={"timeout": 20}
+                                     request_options={"timeout": 45}
                                  )
                                  result_text = response_retry.text
                                  print(f"[DEBUG] Gemini Text Retry took {time.time()-t1:.2f}s")
                              except Exception as e_retry:
                                  print(f"[ERROR] Gemini Retry Failed: {e_retry}")
                                  print("[WARNING] FALLBACK: Seleccionando opción 0 para desbloquear aprendizaje.")
-                                 result_text = "0"
+                                 result_text = "[ANSWER]" + options[0] + "[/ANSWER]" if options else "0"
 
                     except Exception as e:
                         print(f"[ERROR] Gemini Text Error (General): {e}")
@@ -673,17 +805,53 @@ NO expliques tu respuesta. SOLO envía el número."""
                 if not result_text:
                     print("[ERROR] Falló la generación con Gemini (posible timeout)")
                     print("[WARNING] FALLBACK FINAL: Seleccionando opción 0.")
-                    result_text = "0"
+                    result_text = "[ANSWER]" + options[0] + "[/ANSWER]" if options else "0"
 
                 print(f"[DEBUG] Gemini (Raw): {result_text}")
                 
-                # Extraer número
-                match = re.search(r'(\d+)', result_text)
-                if match:
-                    answer_index = int(match.group(1))
-                else:
-                    answer_index = 0
+                # Extraer respuesta
+                answer_index = -1
+                
+                # FIX: Clean asterisks and leading numbers before matching
+                clean_result = re.sub(r'^[\d]+[\.)\-:\s]+', '', result_text.replace('*', '')).strip().lower()
+                
+                # 1. Intentar extraer usando las etiquetas [ANSWER]
+                match_text = re.search(r'\[ANSWER\](.*?)\[/ANSWER\]', result_text, re.IGNORECASE | re.DOTALL)
+                if match_text:
+                    extracted_text = match_text.group(1).strip().lower().replace('*', '')
+                    for i, opt in enumerate(options):
+                        if opt.strip().lower() == extracted_text or extracted_text in opt.strip().lower():
+                            answer_index = i
+                            break
+                            
+                # 2. Si no funciona, intentar buscar el texto de la opción directamente en la respuesta (si la respuesta es corta)
+                if answer_index == -1 and len(clean_result) < 100:
+                    for i, opt in enumerate(options):
+                        opt_clean = opt.strip().lower()
+                        if opt_clean == clean_result or opt_clean in clean_result:
+                            answer_index = i
+                            break
+                            
+                # 3. Fallback al comportamiento anterior (buscar primer número) si no se encontró texto
+                if answer_index == -1:
+                    match_num = re.search(r'(\d+)', result_text)
+                    if match_num:
+                        # Si encontramos un número pero el prompt le pedía texto, el LLM quizá sí respondió con un índice (0, 1, 2...)
+                        # O es porque extrajo el '7' del problema (ej: "The answer is option 6").
+                        # Como fallback ciego, esto es arriesgado en estas preguntas, pero lo mantenemos para retrocompatibilidad total.
+                        parsed_num = int(match_num.group(1))
+                        # Si el LLM devolvió un dígito que coincide con el rango de opciones, usarlo.
+                        if parsed_num < len(options):
+                             answer_index = parsed_num
+                        else:
+                             answer_index = 0
+                    else:
+                        answer_index = 0
             
+            # --- VALIDATION ---
+            if 'answer_index' not in locals():
+                answer_index = 0
+
             if answer_index < 0 or answer_index >= len(options):
                 answer_index = 0
             
@@ -691,15 +859,18 @@ NO expliques tu respuesta. SOLO envía el número."""
             print(f"[INFO] Respuesta seleccionada: {answer_text}")
             
             # Click en la opción
-            option_elements[answer_index].click()
+            try:
+                option_elements[answer_index].evaluate("el => el.click()")
+            except:
+                option_elements[answer_index].click()
             self.browser.sleep(0.1)
             
             # Click en CHECK
             self._click_check_button()
-            self.browser.sleep(0.1)
+            self.browser.sleep(1.0)  # Esperar 1s para que el modal de respuesta correcta cargue
             
-            # Click en OK del modal
-            self.learn_from_mistake(question_text, full_context_for_sig)
+            # Aprender de errores (si aplica)
+            self.learn_from_mistake(question_text, full_context_for_sig, image_id)
             self._click_ok_modal()
             
             print(f"[SUCCESS] Pregunta (multiple choice) respondida")
@@ -777,10 +948,59 @@ NO expliques tu respuesta. SOLO envía el número."""
             if not options:
                 print("[ERROR] No se encontraron opciones")
                 return False
+
+            # --- KNOWLEDGE CHECK ---
+            # Extract Breadcrumbs (Book/Mod/Unit)
+            breadcrumbs = ""
+            try:
+                bc_el = self.browser.page.query_selector("p.tracking-widest.uppercase")
+                if bc_el: breadcrumbs = bc_el.inner_text().strip()
+            except: pass
             
-            # Enviar a Gemini para análisis
+            # Extract Question Counter
+            q_counter = ""
+            try:
+                counter_el = self.browser.page.query_selector("div.flex-shrink-0.font-bold.text-gray-700")
+                if counter_el: q_counter = counter_el.inner_text().replace("\n", "").strip()
+            except: pass
+
+            options_text = " | ".join(options)
+            ctx_sig = f"[AUDIO] TITLE: {breadcrumbs} || OPTIONS: {options_text} || Q: {q_counter}"
+            
+            print(f"[DEBUG] Checking knowledge for audio: {ctx_sig[:120]}...")
+            known_answers = self.try_solve_with_knowledge(question_text, ctx_sig)
+            
+            if known_answers:
+                answer_text = known_answers[0]
+                print(f"[INFO] Aplicando knowledge en Audio: {answer_text}")
+                
+                # Buscar la opción que coincida mejor
+                best_idx = -1
+                for i, opt in enumerate(options):
+                    if opt.strip().upper() == answer_text.strip().upper():
+                        best_idx = i
+                        break
+                
+                if best_idx != -1:
+                    option_elements[best_idx].click()
+                    self.browser.sleep(0.1)
+                    self._click_check_button()
+                    self.browser.sleep(0.1)
+                    self.learn_from_mistake(question_text, ctx_sig)
+                    self._click_ok_modal()
+                    return True
+            
+            # --- GEMINI GENERATION ---
+            # Enviar a Gemini para análisis con reintento
             print("[INFO] Enviando audio a Gemini para análisis...")
-            result = self.solver.analyze_audio_question(audio_bytes, question_text, options)
+            try:
+                result = self.solver.analyze_audio_question(audio_bytes, question_text, options)
+                if "error" in result:
+                    print(f"[WARNING] Reintentando audio tras error: {result['error']}")
+                    result = self.solver.analyze_audio_question(audio_bytes, question_text, options)
+            except Exception as e_audio:
+                print(f"[ERROR] Excepción en audio solver: {e_audio}")
+                result = {"answer_index": 0, "answer_text": options[0]}
             
             answer_index = result.get("answer_index", -1)
             answer_text = result.get("answer_text")
@@ -801,6 +1021,7 @@ NO expliques tu respuesta. SOLO envía el número."""
             
             # Click en OK del modal
             self._click_ok_modal()
+            self.learn_from_mistake(question_text, ctx_sig)
             
             print(f"[SUCCESS] Pregunta de audio respondida")
             self.browser.sleep(self.delay)
@@ -886,11 +1107,23 @@ NO expliques tu respuesta. SOLO envía el número."""
             hints_text = ""
             for i, item in enumerate(fill_data):
                 hints_text += f"{i+1}. {item['hint']}\n"
-                
-            full_context_sig = f"TITLE: {breadcrumbs} || HINTS: {hints_text}"
+            
+            # Detect audio for signature (rare but possible)
+            has_audio_fill = self.browser.page.query_selector("audio") is not None
+            audio_tag = "[AUDIO] " if has_audio_fill else ""
+            
+            # Extract Question Counter for uniqueness
+            q_counter = ""
+            try:
+                counter_el = self.browser.page.query_selector("div.flex-shrink-0.font-bold.text-gray-700")
+                if counter_el:
+                    q_counter = counter_el.inner_text().replace("\n", "").strip()
+            except: pass
+
+            full_context_sig = f"{audio_tag}TITLE: {breadcrumbs} || HINTS: {hints_text} || Q: {q_counter}"
             
             # --- LEARNED KNOWLEDGE CHECK ---
-            print(f"[DEBUG] Checking knowledge with context: {full_context_sig[:100]}...")
+            print(f"[DEBUG] Checking knowledge with context: {full_context_sig[:120]}...")
             known_answers = self.try_solve_with_knowledge(question_text, full_context_sig)
             
             if known_answers:
@@ -1112,7 +1345,26 @@ INSTRUCCIONES:
             
             # context_data for specific signature
             # FIX: Sort items to ensure signature is deterministic regardless of shuffle
-            ctx_sentences = " | ".join([" ".join(sorted(d['words'])) for d in all_sentences_data])
+            # Extract Breadcrumbs (Book/Mod/Unit)
+            breadcrumbs = ""
+            try:
+                bc_el = self.browser.page.query_selector("p.tracking-widest.uppercase")
+                if bc_el: breadcrumbs = bc_el.inner_text().strip()
+            except: pass
+            
+            # Extract Question Counter
+            q_counter = ""
+            try:
+                counter_el = self.browser.page.query_selector("div.flex-shrink-0.font-bold.text-gray-700")
+                if counter_el: q_counter = counter_el.inner_text().replace("\n", "").strip()
+            except: pass
+
+            has_audio_ord = self.browser.page.query_selector("audio") is not None
+            audio_tag = "[AUDIO] " if has_audio_ord else ""
+            
+            # Combine words for uniqueness
+            sorted_words_text = " | ".join([" ".join(sorted(d['words'])) for d in all_sentences_data])
+            ctx_sentences = f"{audio_tag}TITLE: {breadcrumbs} || DATA: {sorted_words_text} || Q: {q_counter}"
             
             # --- ORDEN DE PRIORIDAD: KNOWLEDGE > HARDCODE > FAIL-FAST PARAGRAPHS > GEMINI ---
             
@@ -1338,11 +1590,20 @@ INSTRUCCIONES:
                 for i, data in enumerate(all_sentences_data):
                     prompt_parts.append(f"{i+1}. {data['words']}")
                 
-                prompt = f"""Ordena las palabras para formar oraciones correctas en inglés:
+                prompt = f"""Ordena los siguientes fragmentos para formar oraciones correctas en inglés.
+DEBES usar EXACTAMENTE los fragmentos proporcionados y separarlos obligatoriamente con el símbolo | (pipe).
+
+Fragmentos a ordenar:
 {chr(10).join(prompt_parts)}
-Responde SOLO con: 1. Word | Word | Word"""
+
+FORMATO DE RESPUESTA REQUERIDO (muy importante usar |):
+1. Fragment1 | Fragment2 | Fragment3
+2. Fragment1 | Fragment2"""
                 
-                response = self.solver.model.generate_content(prompt)
+                response = self.solver.model.generate_content(
+                    prompt,
+                    request_options={"timeout": 30}
+                )
                 result = response.text.strip()
                 print(f"[DEBUG] Gemini ordenamiento:\n{result}")
                 
@@ -1372,10 +1633,15 @@ Responde SOLO con: 1. Word | Word | Word"""
                 print(f"[INFO] Orden objetivo: {correct_order}")
                 
                 # Máximo de intentos para evitar loops infinitos
-                max_attempts = len(correct_order) * 2
+                max_attempts = len(correct_order) * 3  # Aumentado un poco por seguridad
                 attempts = 0
+                start_time = time.time()
                 
                 while attempts < max_attempts:
+                    if time.time() - start_time > 45: # Timeout de seguridad por oración
+                         print(f"[WARNING] Timeout ordenando oración {index+1}. Saltando...")
+                         break
+                         
                     attempts += 1
                     
                     # Re-query elementos
@@ -1524,6 +1790,15 @@ Responde SOLO con: 1. Word | Word | Word"""
                     for btn in buttons:
                         try:
                             btn_text = btn.inner_text().strip().lower()
+                            # CRITICAL: Skip buttons with empty or very short text to avoid
+                            # clicking exit/close buttons that have empty or icon-only text
+                            if len(btn_text) < 2:
+                                continue
+                            # CRITICAL: Never click the Exit button
+                            btn_title = btn.get_attribute("title") or ""
+                            btn_class = btn.get_attribute("class") or ""
+                            if "exit" in btn_title.lower() or "exit" in btn_text or "text-red" in btn_class:
+                                continue
                             if answer.lower() in btn_text or btn_text in answer.lower():
                                 btn.click()
                                 success = True
@@ -1594,18 +1869,30 @@ Responde SOLO con: 1. Word | Word | Word"""
                 return self.solve_with_screenshot(question_text)
             
             # --- LEARNED KNOWLEDGE CHECK ---
-            # Generar clave única basada en el contenido real, no solo el título
-            # --- LEARNED KNOWLEDGE CHECK ---
-            # Generar clave única basada en el contenido real
-            unique_key = question_text
-            if rows_data:
-                # Usar todos los textos para ser inequívoco
-                sentences_signature = " | ".join([r['sentence'][:30] for r in rows_data])
-                unique_key += " || " + sentences_signature
+            # Generar clave única basada en el contenido real, tútulo y contador
+            # Extract Breadcrumbs (Book/Mod/Unit)
+            breadcrumbs = ""
+            try:
+                bc_el = self.browser.page.query_selector("p.tracking-widest.uppercase")
+                if bc_el: breadcrumbs = bc_el.inner_text().strip()
+            except: pass
             
-            print(f"[DEBUG] Generated Knowledge Key: {unique_key[:100]}...")
+            # Extract Question Counter
+            q_counter = ""
+            try:
+                counter_el = self.browser.page.query_selector("div.flex-shrink-0.font-bold.text-gray-700")
+                if counter_el: q_counter = counter_el.inner_text().replace("\n", "").strip()
+            except: pass
+
+            # Add Audio Tag if detected
+            audio_tag = "[AUDIO] " if self.browser.page.query_selector("audio") else ""
+
+            sentences_signature = " | ".join([r['sentence'][:30] for r in rows_data])
+            context_sig = f"{audio_tag}TITLE: {breadcrumbs} || ROWS: {sentences_signature} || Q: {q_counter}"
             
-            known_answers = self.try_solve_with_knowledge(unique_key)
+            print(f"[DEBUG] Generated Knowledge Context: {context_sig[:120]}...")
+            
+            known_answers = self.try_solve_with_knowledge(question_text, context_sig)
             if known_answers:
                 print(f"[INFO] Usando respuestas aprendidas en Sentence Completion: {known_answers}")
                 clicks_made = 0
@@ -1622,7 +1909,7 @@ Responde SOLO con: 1. Word | Word | Word"""
                     for opt in row['options']:
                         if normalize(opt['text']) == target_ans:
                             try:
-                                opt['element'].click()
+                                opt['element'].evaluate("el => el.click()")
                                 clicks_made += 1
                                 found = True
                                 self.browser.sleep(0.2)
@@ -1634,7 +1921,7 @@ Responde SOLO con: 1. Word | Word | Word"""
                          for opt in row['options']:
                             if opt['text'].upper().strip() == target_ans:
                                 try:
-                                    opt['element'].click()
+                                    opt['element'].evaluate("el => el.click()")
                                     clicks_made += 1
                                     found = True
                                     self.browser.sleep(0.2)
@@ -1645,7 +1932,7 @@ Responde SOLO con: 1. Word | Word | Word"""
                     self.browser.sleep(0.1)
                     self._click_check_button()
                     self.browser.sleep(0.2)
-                    self.learn_from_mistake(unique_key) # Usar la clave única para aprender
+                    self.learn_from_mistake(question_text, context_sig) # Usar la clave única mejorada
                     self._click_ok_modal()
                     return True
 
@@ -1664,15 +1951,23 @@ Responde SOLO con: 1. Word | Word | Word"""
                     all_options.add(o['text'].upper())
             
             # Prompt ultra-conciso que fuerza respuesta exacta
-            prompt = f"""{question_text}
+            prompt = f"""Pregunta: {question_text}
+
+ORACIONES A COMPLETAR (Múltiples Opciones):
 {sentences_text}
 
-Responde SOLO con UNA de estas opciones para cada oración: {', '.join(all_options)}
-Formato exacto:
+INSTRUCCIONES CRÍTICAS:
+1. Evalúa CADA UNA de las {len(rows_data)} oraciones detalladas arriba.
+2. Formato estricto. OBLIGATORIAMENTE debes entregar EXACTAMENTE {len(rows_data)} líneas de respuesta, una por cada oración. NO TE DETENGAS EN LA PRIMERA.
+3. Responde SOLO con una de estas opciones para cada oración: {', '.join(all_options)}
+4. Formato de salida requerido:
 1. OPCIÓN
 2. OPCIÓN"""
             
-            response = self.solver.model.generate_content(prompt)
+            response = self.solver.model.generate_content(
+                prompt,
+                request_options={"timeout": 30}
+            )
             result = response.text.strip()
             print(f"[DEBUG] Gemini: {result}")
             
@@ -1688,7 +1983,7 @@ Formato exacto:
 
 
                     idx = int(match.group(1)) - 1
-                    answer = normalize(match.group(2))
+                    answer = normalize(match.group(2)).replace('*', '')
                     
                     if 0 <= idx < len(rows_data):
                         row = rows_data[idx]
@@ -1728,13 +2023,14 @@ Formato exacto:
                         if matched_opt:
                             print(f"[INFO] Oración {idx+1} → {matched_opt['text']}")
                             try:
-                                matched_opt['element'].click()
+                                # Fix: Forzar click por javascript para ignorar obstáculos visuales CSS
+                                matched_opt['element'].evaluate("el => el.click()")
                                 clicked += 1
                                 self.browser.sleep(0.2)
-                            except:
-                                # Si falla, intentar con selector de texto
+                            except Exception as js_err:
+                                print(f"[WARNING] JS Click en oración falló ({js_err}). Intentando click global...")
                                 try:
-                                    self.browser.page.click(f"button.activar-btn:has-text('{matched_opt['text']}')", timeout=2000)
+                                    self.browser.page.evaluate(f"document.querySelector(\"button.activar-btn:has-text('{matched_opt['text']}')\").click()")
                                     clicked += 1
                                 except:
                                     print(f"[WARNING] No se pudo hacer click en {matched_opt['text']}")
@@ -1745,7 +2041,7 @@ Formato exacto:
             self.browser.sleep(0.1)
             self._click_check_button()
             self.browser.sleep(0.2)
-            self.learn_from_mistake(unique_key)
+            self.learn_from_mistake(question_text, context_sig)
             self._click_ok_modal()
             
             print(f"[SUCCESS] Pregunta (sentence completion) respondida")
@@ -1930,10 +2226,12 @@ Formato exacto:
 
 Afirmaciones:{options_text}
 
-IMPORTANTE: Responde SOLO con el formato:
+INSTRUCCIONES CRÍTICAS:
+1. Evalúa CADA UNA de las {len(rows_data)} afirmaciones.
+2. OBLIGATORIAMENTE debes entregar EXACTAMENTE {len(rows_data)} líneas de respuesta. NO TE DETENGAS.
+3. Responde SOLO con el formato:
 1. TRUE
 2. FALSE
-3. TRUE
 ...
 
 Sin asteriscos, sin explicaciones, sin formato markdown. Solo el número y TRUE o FALSE."""
@@ -1943,7 +2241,10 @@ Sin asteriscos, sin explicaciones, sin formato markdown. Solo el número y TRUE 
                 # TRUE/FALSE con imagen
                 prompt = f"""Afirmaciones:{options_text}
  
- IMPORTANTE: Responde SOLO con el formato:
+ INSTRUCCIONES CRÍTICAS:
+ 1. Evalúa CADA UNA de las {len(rows_data)} afirmaciones.
+ 2. OBLIGATORIAMENTE debes entregar EXACTAMENTE {len(rows_data)} líneas de respuesta. NO TE DETENGAS.
+ 3. Responde SOLO con el formato:
  1. TRUE
  2. FALSE
  ...
@@ -1966,7 +2267,10 @@ Sin asteriscos, sin explicaciones, sin formato markdown. Solo el número y TRUE 
                 # Completar oraciones
                 prompt = f"""Oraciones:{options_text}
 
-IMPORTANTE: Responde SOLO con el formato:
+INSTRUCCIONES CRÍTICAS:
+1. Evalúa CADA UNA de las {len(rows_data)} oraciones.
+2. OBLIGATORIAMENTE debes entregar EXACTAMENTE {len(rows_data)} líneas de respuesta. NO TE DETENGAS.
+3. Responde SOLO con el formato:
 1. OPCIÓN_CORRECTA
 2. OPCIÓN_CORRECTA
 ...
@@ -1980,7 +2284,10 @@ Sin asteriscos, sin explicaciones, sin formato markdown."""
                 # Matching con imagen (si hay screenshot disponible)
                 prompt = f"""Preguntas y Opciones:{options_text}
 
-IMPORTANTE: Responde SOLO con el formato:
+INSTRUCCIONES CRÍTICAS:
+1. Evalúa CADA UNA de las {len(rows_data)} preguntas.
+2. OBLIGATORIAMENTE debes entregar EXACTAMENTE {len(rows_data)} líneas de respuesta. NO TE DETENGAS.
+3. Responde SOLO con el formato:
 1. RESPUESTA_CORRECTA
 2. RESPUESTA_CORRECTA
 ...
@@ -1999,7 +2306,10 @@ REGLAS:
                 # Fallback sin imagen
                 prompt = f"""Preguntas y Opciones:{options_text}
 
-IMPORTANTE: Responde SOLO con el formato:
+INSTRUCCIONES CRÍTICAS:
+1. Evalúa CADA UNA de las {len(rows_data)} preguntas.
+2. OBLIGATORIAMENTE debes entregar EXACTAMENTE {len(rows_data)} líneas de respuesta. NO TE DETENGAS.
+3. Responde SOLO con el formato:
 1. RESPUESTA_CORRECTA
 2. RESPUESTA_CORRECTA
 ...
@@ -2139,14 +2449,16 @@ REGLAS:
                     # FALLBACK: Random Choice (Updated for new variable)
                     if not matched_opt_element and row['options']:
                          print(f"[WARNING] No match found for row {row_num+1} ('{answer}'). Selecting RANDOM fallback to ensure completion.")
-                         # Re-query random option from fresh buttons if possible
                          try:
                              if target_row_container:
                                   opts = target_row_container.query_selector_all("button.activar-btn")
                                   if opts:
                                       rnd_btn = random.choice(opts)
-                                      rnd_btn.scroll_into_view_if_needed()
-                                      rnd_btn.click(force=True)
+                                      try:
+                                          rnd_btn.evaluate("el => el.click()")
+                                      except:
+                                          rnd_btn.scroll_into_view_if_needed()
+                                          rnd_btn.click(force=True)
                                       clicked += 1
                                       print(f"[INFO] Random Click -> {rnd_btn.inner_text()}")
                          except: pass
@@ -2184,7 +2496,6 @@ REGLAS:
         try:
             print("[INFO] Resolviendo pregunta de matching imágenes...")
             
-            # --- HARDCODED ANSWERS START ---
             if "LOOK AT THE PICTURES. GRAB THE CORRESPONDING NAME OF THE OCCASION" in question_text.upper():
                 print("[OVERRIDE] Detectada pregunta de Occasions. Aplicando respuestas hardcoded.")
                 try:
@@ -2195,42 +2506,56 @@ REGLAS:
                     # 4. Mother's day (Silueta mamá)
                     correct_order = ["Birthday", "Valentine's day", "Christmas", "Mother's day"]
                     
-                    zone_elements = self.browser.page.query_selector_all("button:has-text('Waiting answer')")
-                    clicks_made = 0
-                    
-                    for i, zone_btn in enumerate(zone_elements):
-                        if i >= len(correct_order):
-                            break
-                            
-                        target_answer = correct_order[i]
-                        print(f"[INFO] Hardcode Zona {i+1} -> Buscando '{target_answer}'")
-                        
-                        # Buscar el botón de opción correspondiente
-                        # Usamos selectores amplios para encontrar el botón correcto
+                    # 1. Resetear repuestas pre-llenadas primero
+                    prefilled_btns = self.browser.page.query_selector_all("button.opt-1:not(:has-text('Waiting answer'))")
+                    for btn in prefilled_btns:
                         try:
-                            # Intentar clickear la opción directamente
-                            # Buscamos botones que contengan el texto, ignorando case
-                            option_btn = self.browser.page.get_by_role("button", name=re.compile(re.escape(target_answer), re.IGNORECASE))
+                            # Hacer clic en la cruz o en el botón mismo para quitar la opción
+                            btn.click()
+                            self.browser.sleep(0.1)
+                        except: pass
+                    self.browser.sleep(0.5)
+
+                    for i, target_answer in enumerate(correct_order):
+                        print(f"[INFO] Hardcode Zona {i+1} -> Inyectando '{target_answer}'")
+                        
+                        try:
+                            # Usar JavaScript para inyectar directamente el texto y las clases CSS necesarias
+                            # para simular que el usuario ya seleccionó la opción.
+                            success = self.browser.page.evaluate('''([idx, text]) => {
+                                const zones = document.querySelectorAll("button:has-text('Waiting answer...'), button.opt-1:not(:has-text('Waiting answer...'))");
+                                if (idx < zones.length) {
+                                    let btn = zones[idx];
+                                    btn.innerText = text;
+                                    btn.className = "w-full sm:w-64 h-12 px-4 rounded-xl border-2 border-gray-300 text-sm font-medium hover:bg-gray-100 transition-colors focus:outline-none opt-1 flex items-center justify-center bg-blue-100 text-blue-700 font-bold border-blue-400 shadow-md";
+                                    return true;
+                                }
+                                return false;
+                            }''', [i, target_answer])
                             
-                            # Filtrar botones que no son de opciones (ej. no el mismo Waiting answer si tuviera texto)
-                            if option_btn.count() > 0:
-                                # A veces hay múltiples, tomamos el que parece estar en el panel de opciones
-                                # O simplemente el primero visible
-                                for k in range(option_btn.count()):
-                                    btn = option_btn.nth(k)
-                                    if btn.is_visible():
-                                        btn.click()
-                                        print(f"[SUCCESS] Click en '{target_answer}'")
-                                        clicks_made += 1
-                                        self.browser.sleep(0.1)
-                                        break
+                            if success:
+                                print(f"[SUCCESS] Inyectado '{target_answer}' en Zona {i+1}")
+                                clicks_made += 1
+                            else:
+                                print(f"[WARNING] No se encontró la Zona {i+1} en el DOM.")
+                                
                         except Exception as e:
-                            print(f"[WARNING] No se pudo clickear '{target_answer}': {e}")
+                            print(f"[WARNING] No se pudo inyectar '{target_answer}': {e}")
                             
                     if clicks_made > 0:
-                        self.browser.sleep(0.1)
+                        self.browser.sleep(0.5)
+                        # También ocultar las opciones originales abajo para ser más realistas
+                        self.browser.page.evaluate('''() => {
+                            const options = document.querySelectorAll(".options-container button, .flex-wrap button");
+                            options.forEach(opt => {
+                                let span = opt.querySelector('span');
+                                if (span) {
+                                    opt.parentElement.className = "transition-all duration-300 transform opacity-0 pointer-events-none";
+                                }
+                            });
+                        }''')
                         self._click_check_button()
-                        self.browser.sleep(0.1)
+                        self.browser.sleep(0.5)
                         self._click_ok_modal()
                         return True
                         
@@ -2244,6 +2569,21 @@ REGLAS:
             # 1. Obtener zonas pendientes (botones "Waiting answer")
             zone_elements = self.browser.page.query_selector_all("button:has-text('Waiting answer')")
             
+            # NUEVO: Resetear cualquier respuesta pre-llenada de intentos anteriores
+            # Esto evita que respuestas incorrectas previas permanezcan
+            prefilled_btns = self.browser.page.query_selector_all("button.opt-1")
+            if len(prefilled_btns) > 0:
+                print(f"[INFO] Detectadas {len(prefilled_btns)} respuestas pre-llenadas. Reseteando...")
+                for btn in prefilled_btns:
+                    try:
+                        btn.click()
+                        self.browser.sleep(0.1)
+                    except: pass
+                self.browser.sleep(0.3)
+                # Re-obtener zonas después del reset
+                zone_elements = self.browser.page.query_selector_all("button:has-text('Waiting answer')")
+                print(f"[INFO] Después del reset: {len(zone_elements)} zonas pendientes")
+            
             if not zone_elements:
                 print("[WARNING] No hay zonas pendientes")
                 # Verificar si ya está todo lleno antes de hacer CHECK
@@ -2255,9 +2595,103 @@ REGLAS:
                     return True
                 return False
             
-            # 2. Contar imágenes y EXTRAER ETIQUETAS DE TEXTO (para matching sin imágenes)
-            images = self.browser.page.query_selector_all("img[alt='Descripción de la imagen']")
-            num_images = len(images)
+            # ====== ROBUST IMAGE DETECTION ======
+            q_lower = question_text.lower()
+            
+            # --- NUEVO: Capturar imágenes individuales ligadas a cada zona (si hay varias) ---
+            image_parts = []
+            image_id = ""
+            
+            print("[DEBUG] Step: Buscando imágenes para cada una de las zonas...")
+            for i, zone_btn in enumerate(zone_elements):
+                # Buscar un contenedor padre cercano que pueda tener la imagen (ej: la misma fila o tarjeta)
+                try:
+                    # Intenta buscar imagen dentro del ancestro común más cercano (.shadow-sm, .flex-row)
+                    card_js = zone_btn.evaluate_handle("el => { return el.closest('.shadow-sm') || el.closest('.flex-row') || el.parentElement.parentElement; }")
+                    card = card_js.as_element()
+                    if card:
+                        img = card.query_selector("img:not([src*='logo']):not([src*='icon'])")
+                        if img and img.is_visible():
+                            try:
+                                # Usar timeout corto para evitar que una imagen rebelde trabe el bot
+                                screenshot = img.screenshot(timeout=1000)
+                                if screenshot:
+                                    image_parts.append(screenshot)
+                            except Exception as img_e:
+                                print(f"[WARNING] Timeout o error capturando imagen individual {i+1}: {img_e}")
+                        else:
+                            # Verificamos super rápido si la página entera tiene imágenes relevantes antes de iterar todas
+                            if i == 0 and self.browser.page.locator("img:not([src*='logo']):not([src*='icon'])").count() == 0:
+                                print("[DEBUG] No hay imágenes relevantes en toda la página. Abortando búsqueda individual.")
+                                break
+                except Exception as e:
+                    pass
+            
+            # Si no encontró una por cada zona, intentamos con la lógica clásica (1 imagen general o contendor principal)
+            if len(image_parts) != len(zone_elements) or len(image_parts) == 0:
+                print(f"[DEBUG] No se encontraron imágenes individuales perfectas ({len(image_parts)} encontradas vs {len(zone_elements)} zonas). Fallback a captura global.")
+                image_parts = [] # Reset
+                
+                img_selectors = [
+                     "img[alt='Descripción de la imagen']",
+                     ".question-container img",
+                     "img:not([src*='logo']):not([src*='icon']):not([src*='avatar']):not([class*='icon']):not([class*='logo'])"
+                ]
+                
+                target_img_locator = None
+                for sel in img_selectors:
+                    elements = self.browser.page.locator(sel)
+                    try:
+                        count = elements.count()
+                        for j in range(count):
+                            el = elements.nth(j)
+                            if el.is_visible():
+                                box = el.bounding_box()
+                                if box and box['width'] > 40 and box['height'] > 40:
+                                    target_img_locator = el
+                                    break
+                        if target_img_locator:
+                            break
+                    except:
+                        continue
+                
+                screenshot = None
+                if target_img_locator and target_img_locator.is_visible():
+                    try:
+                        screenshot = target_img_locator.screenshot(timeout=2000)
+                    except: pass
+                
+                if screenshot is None:
+                    try:
+                        if self.browser.page.locator("img:not([src*='logo']):not([src*='icon'])").count() > 0:
+                            container = self.browser.page.locator(".card-body, main, body").first
+                            if container.is_visible():
+                                 screenshot = container.screenshot(timeout=3000)
+                    except: pass
+                
+                if screenshot:
+                    image_parts.append(screenshot)
+            
+            has_image = len(image_parts) > 0
+            
+            if has_image:
+                print(f"[DEBUG] Step: Tomadas {len(image_parts)} capturas de pantalla para la pregunta.")
+                # Generar hash combinado si hay varias imágenes
+                hasher = hashlib.md5()
+                for part in image_parts:
+                    hasher.update(part)
+                image_id = hasher.hexdigest()
+                print(f"[INFO] 📸 Pregunta visual detectada en matching. Hash combinado generado para caché: {image_id}")
+            else:
+                print("[INFO] Screenshot failed, forcing text-only mode en matching")
+            
+            skip_knowledge = False if image_id else has_image
+            if skip_knowledge:
+                print("[INFO] 📸 Pregunta con imagen detectada pero sin hash. Analizando visualmente con Gemini.")
+
+            num_images = len(image_parts)
+            
+            # 2. EXTRAER ETIQUETAS DE TEXTO (para matching sin imágenes)
             
             # Extraer texto asociado a cada "Waiting answer"
             zone_labels = []
@@ -2318,7 +2752,7 @@ REGLAS:
                         continue
                     
                     text = btn.inner_text().strip()
-                    if text and len(text) > 1 and "Waiting" not in text:
+                    if text and len(text) > 0 and "Waiting" not in text:
                         if not any(o['text'] == text for o in available_options):
                             available_options.append({"text": text, "element": btn})
             
@@ -2344,11 +2778,17 @@ REGLAS:
             except: pass
             
             # FULL CONTEXT SIGNATURE
-            full_context_sig = f"TITLE: {breadcrumbs} || ITEMS: {items_text_sig} || OPTIONS: {options_text_sig}"
+            # Incluir el image_id en la firma si existe, para que preguntas con las mismas opciones pero distintas imágenes no colisionen en el aprendizaje
+            if image_id:
+                full_context_sig = f"TITLE: {breadcrumbs} || ITEMS: {items_text_sig} || OPTIONS: {options_text_sig} || [IMG:{image_id}]"
+            else:
+                full_context_sig = f"TITLE: {breadcrumbs} || ITEMS: {items_text_sig} || OPTIONS: {options_text_sig}"
             
             # --- LEARNED KNOWLEDGE CHECK (Relocated) ---
-            print(f"[DEBUG] Checking knowledge with context: {full_context_sig[:100]}...")
-            known_answers = self.try_solve_with_knowledge(question_text, full_context_sig)
+            known_answers = None
+            if not skip_knowledge or image_id:
+                print(f"[DEBUG] Checking knowledge with context: {full_context_sig[:100]}... [IMG:{image_id}]")
+                known_answers = self.try_solve_with_knowledge(question_text, full_context_sig, image_id)
             
             if known_answers:
                 print(f"[INFO] Aplicando knowledge en Drag/Match: {known_answers}")
@@ -2381,13 +2821,19 @@ REGLAS:
                     if best_match:
                         try:
                             # 1. Click Zone
-                            zone_elements[i].scroll_into_view_if_needed()
-                            zone_elements[i].click(force=True)
+                            try:
+                                zone_elements[i].evaluate("el => el.click()")
+                            except:
+                                zone_elements[i].scroll_into_view_if_needed()
+                                zone_elements[i].click(force=True)
                             self.browser.sleep(0.15)
                             
                             # 2. Click Option
-                            best_match['element'].scroll_into_view_if_needed()
-                            best_match['element'].click(force=True)
+                            try:
+                                best_match['element'].evaluate("el => el.click()")
+                            except:
+                                best_match['element'].scroll_into_view_if_needed()
+                                best_match['element'].click(force=True)
                             clicks_k += 1
                             self.browser.sleep(0.2)
                             print(f"[INFO] Learned click: Zone {i+1} -> {best_match['text']}")
@@ -2399,7 +2845,7 @@ REGLAS:
                      self._click_check_button()
                      self.browser.sleep(0.2)
                      # Learn again to reinforce/update
-                     self.learn_from_mistake(question_text, full_context_sig)
+                     self.learn_from_mistake(question_text, full_context_sig, image_id)
                      self._click_ok_modal()
                      self.browser.sleep(self.delay)
                      return True
@@ -2411,7 +2857,7 @@ REGLAS:
             
             prompt = f"""Pregunta: {question_text}
 
-Hay {len(zone_elements)} items para completar/relacionar.
+Hay {len(zone_elements)} items para completar/relacionar. OBLIGATORIAMENTE debes entregar {len(zone_elements)} respuestas.
 ITEMS/PREGUNTAS:
 {items_text}
 
@@ -2420,19 +2866,32 @@ OPCIONES DISPONIBLES: {options_str}
 Instrucciones:
 1. Asigna la opción correcta a cada item.
 2. Cada opción debe usarse UNA sola vez (1-a-1).
-3. Responde en formato: "1. OPCIÓN"
+3. CRÍTICO: Responde con EXACTAMENTE {len(zone_elements)} líneas. No te detengas en la primera.
+4. Responde con el formato estricto: "NUMERO. OPCIÓN" (Ejemplo: "1. doctor")
 
 Respuesta:"""
             
             # 4. Decidir si usar imagen o solo texto
             if num_images > 0:
-                # Con imágenes: tomar screenshot
-                screenshot = self.browser.screenshot(full_page=True)
-                image_part = {
-                    "mime_type": "image/png",
-                    "data": base64.b64encode(screenshot).decode()
-                }
-                response = self.solver.model.generate_content([prompt, image_part])
+                print("[INFO] Usando modelo avanzado (Pro) para mayor precisión visual en matching...")
+                if len(image_parts) == 1:
+                    # Caso general (1 foto grande)
+                    content_parts = [prompt, {
+                        "mime_type": "image/png",
+                        "data": base64.b64encode(image_parts[0]).decode()
+                    }]
+                else:
+                    # Caso de cuadrícula: múltiples fotos independientes
+                    print(f"[INFO] Preparando {len(image_parts)} imágenes individuales secuenciales...")
+                    content_parts = [prompt]
+                    for idx, part_bytes in enumerate(image_parts):
+                        content_parts.append(f"----- IMAGE {idx+1} -----")
+                        content_parts.append({
+                            "mime_type": "image/png",
+                            "data": base64.b64encode(part_bytes).decode()
+                        })
+                
+                response = self.solver.advanced_model.generate_content(content_parts)
             else:
                 # Sin imágenes: solo texto (MÁS RÁPIDO)
                 response = self.solver.model.generate_content(prompt)
@@ -2441,98 +2900,117 @@ Respuesta:"""
             print(f"[DEBUG] Gemini responde:\n{result}")
             
             # 5. Parsear respuestas y hacer clicks
-            lines = result.split("\n")
+            raw_lines = result.split("\n")
+            clean_lines = [line.strip() for line in raw_lines if line.strip() and not line.strip().startswith('```')]
             clicks_done = 0
             
             # Tracking local para evitar loops en esta ejecución
             locally_used_opt_texts = set()
             
-            for line in lines:
-                match = re.search(r'(\d+)\.\s*(.+)', line)
+            # Counter for lines that don't have explicit numbering
+            fallback_idx = 0
+            
+            for line in clean_lines:
+                match = re.search(r'^(\d+)[\.\-\)]\s*(.+)', line)
                 if match:
                     idx = int(match.group(1)) - 1
-                    answer = match.group(2).strip().lower() # Gemini suele devolver texto exacto
+                    answer = match.group(2).strip().lower().replace('*', '')
+                    fallback_idx = idx + 1 # sync fallback tracker
+                else:
+                    # Line exists but has no numbering, ignore preface/intro if it doesn't look like an answer
+                    # But if we assume it's an answer, use fallback_idx
+                    if len(line.split()) > 10 or "respuesta" in line.lower():
+                        continue # Probably preface text from LLM
+                    idx = fallback_idx
+                    answer = re.sub(r'^[\-\*]\s+', '', line).strip().lower().replace('*', '')
+                    fallback_idx += 1
+                
+                if idx < len(zone_elements):
+                    # Skip if answer already used locally
+                    if answer.upper() in locally_used_opt_texts:
+                        print(f"[WARNING] Gemini repitió respuesta '{answer}' para zona {idx+1}. Ignorando.")
+                        continue
+
+                    # Buscar la MEJOR coincidencia (Exacta > Contenida más larga > Normalizada)
+                    best_match = None
+                    best_score = -1
                     
-                    if idx < len(zone_elements):
-                        # Skip if answer already used locally
-                        if answer.upper() in locally_used_opt_texts:
-                            print(f"[WARNING] Gemini repitió respuesta '{answer}' para zona {idx+1}. Ignorando.")
+                    # Normalizar respuesta target (Gemini)
+                    # "non- defining" -> "non defining" -> "nondefining"
+                    ans_norm = answer.replace("-", "").replace(" ", "")
+                    
+                    # Fallback: Si solo queda una opción y una zona (y no hemos usado nada), forzarla?
+                    # Mejor hacerlo al final del loop si no hay match
+                    
+                    for opt in available_options:
+                        # Skip if option used in this run
+                        if opt['text'].upper() in locally_used_opt_texts:
                             continue
 
-                        # Buscar la MEJOR coincidencia (Exacta > Contenida más larga > Normalizada)
-                        best_match = None
-                        best_score = -1
+                        opt_text = opt['text'].lower()
+                        opt_norm = opt_text.replace("-", "").replace(" ", "")
                         
-                        # Normalizar respuesta target (Gemini)
-                        # "non- defining" -> "non defining" -> "nondefining"
-                        ans_norm = answer.replace("-", "").replace(" ", "")
+                        current_score = -1
                         
-                        # Fallback: Si solo queda una opción y una zona (y no hemos usado nada), forzarla?
-                        # Mejor hacerlo al final del loop si no hay match
+                        # 1. Match Exacto
+                        if opt_text == answer:
+                            current_score = 1000
                         
-                        for opt in available_options:
-                            # Skip if option used in this run
-                            if opt['text'].upper() in locally_used_opt_texts:
-                                continue
-
-                            opt_text = opt['text'].lower()
-                            opt_norm = opt_text.replace("-", "").replace(" ", "")
+                        # 2. Match Normalizado (ignora espacios y guiones)
+                        elif opt_norm == ans_norm:
+                            current_score = 900
                             
-                            current_score = -1
-                            
-                            # 1. Match Exacto
-                            if opt_text == answer:
-                                current_score = 1000
-                            
-                            # 2. Match Normalizado (ignora espacios y guiones)
-                            elif opt_norm == ans_norm:
-                                current_score = 900
-                                
-                            # 3. Contenido (Score = longitud)
-                            elif opt_text in answer:
-                                current_score = len(opt_text)
-                            elif answer in opt_text:
-                                current_score = len(answer)
-                            
-                            if current_score > best_score:
-                                best_score = current_score
-                                best_match = opt
+                        # 3. Contenido (Score = longitud)
+                        elif opt_text in answer:
+                            current_score = len(opt_text)
+                        elif answer in opt_text:
+                            current_score = len(answer)
                         
-                        # Fallback desperate: Si solo queda 1 opción disponible y 1 zona pendiente
-                        if not best_match and len(available_options) - len(locally_used_opt_texts) == 1:
-                             for opt in available_options:
-                                 if opt['text'].upper() not in locally_used_opt_texts:
-                                      best_match = opt
-                                      best_score = 10 # Low score fallback
-                                      print(f"[INFO] Fallback: Forzando única opción restante '{opt['text']}'")
-                                      break
-                        
-                        if best_match:
-                            print(f"[INFO] Zone {idx+1} → {best_match['text']} (Score: {best_score})")
+                        if current_score > best_score:
+                            best_score = current_score
+                            best_match = opt
+                    
+                    # Fallback desperate: Si solo queda 1 opción disponible y 1 zona pendiente
+                    if not best_match and len(available_options) - len(locally_used_opt_texts) == 1:
+                         for opt in available_options:
+                             if opt['text'].upper() not in locally_used_opt_texts:
+                                  best_match = opt
+                                  best_score = 10 # Low score fallback
+                                  print(f"[INFO] Fallback: Forzando única opción restante '{opt['text']}'")
+                                  break
+                    
+                    if best_match:
+                        print(f"[INFO] Zone {idx+1} → {best_match['text']} (Score: {best_score})")
+                        try:
+                            # 1. Click en la ZONA primero
                             try:
-                                # 1. Click en la ZONA primero
+                                zone_elements[idx].evaluate("el => el.click()")
+                            except:
                                 zone_elements[idx].scroll_into_view_if_needed()
                                 zone_elements[idx].click(force=True)
-                                self.browser.sleep(0.15)
-                                
-                                # 2. Click en la OPCIÓN
+                            self.browser.sleep(0.15)
+                            
+                            # 2. Click en la OPCIÓN
+                            try:
+                                best_match['element'].evaluate("el => el.click()")
+                            except:
                                 best_match['element'].scroll_into_view_if_needed()
                                 best_match['element'].click(force=True)
+                            clicks_done += 1
+                            
+                            # Mark as used locally
+                            locally_used_opt_texts.add(best_match['text'].upper())
+                            
+                            self.browser.sleep(0.2)
+                        except:
+                            try:
+                                # Fallback: solo click en opción por texto
+                                self.browser.page.click(f"button:has-text('{best_match['text']}')", timeout=2000)
                                 clicks_done += 1
-                                
-                                # Mark as used locally
                                 locally_used_opt_texts.add(best_match['text'].upper())
-                                
-                                self.browser.sleep(0.2)
                             except:
-                                try:
-                                    # Fallback: solo click en opción por texto
-                                    self.browser.page.click(f"button:has-text('{best_match['text']}')", timeout=2000)
-                                    clicks_done += 1
-                                    locally_used_opt_texts.add(best_match['text'].upper())
-                                except:
-                                    print(f"[WARNING] No se pudo click en {best_match['text']}")
-                                break
+                                print(f"[WARNING] No se pudo click en {best_match['text']}")
+                            break
             
             print(f"[INFO] Clicks realizados: {clicks_done}")
             
@@ -2600,7 +3078,10 @@ Respuesta:"""
                 print(f"[INFO] Using learned answer: {target}")
                 for opt in options:
                     if opt['text'].upper().replace("´", "'").replace("`", "'") == target:
-                        opt['element'].click()
+                        try:
+                            opt['element'].evaluate("el => el.click()")
+                        except:
+                            opt['element'].click()
                         self.browser.sleep(0.1)
                         self._click_check_button()
                         self.browser.sleep(0.1)
@@ -2625,8 +3106,12 @@ Responde SOLO con la opción correcta exacta, nada más:"""
             }
             
             response = self.solver.model.generate_content([prompt, image_part])
-            answer = response.text.strip().split('\n')[0].strip()
-            print(f"[DEBUG] Gemini responde: {answer}")
+            raw_answer = response.text.strip().split('\n')[0].strip()
+            # Clean answer of lists/markdown
+            answer = re.sub(r'^[\d]+[\.)\-:\s]+', '', raw_answer)
+            answer = answer.replace('*', '').strip()
+            
+            print(f"[DEBUG] Gemini responde: {raw_answer} -> Cleaned: {answer}")
             
             # 4. Buscar y hacer click en la opción correcta
             matched = None
@@ -2638,7 +3123,10 @@ Responde SOLO con la opción correcta exacta, nada más:"""
             
             if matched:
                 print(f"[INFO] Seleccionando: '{matched['text']}'")
-                matched['element'].click()
+                try:
+                    matched['element'].evaluate("el => el.click()")
+                except:
+                    matched['element'].click()
                 self.browser.sleep(0.1)
                 
                 # Click en CHECK
@@ -2732,7 +3220,10 @@ Responde SOLO con la opción correcta exacta, nada más:"""
                                 for btn_text, btn_el in row['buttons']:
                                     if (k_req in btn_text.lower() or btn_text.lower() in k_req):
                                         try:
-                                            btn_el.click()
+                                            try:
+                                                btn_el.evaluate("el => el.click()")
+                                            except:
+                                                btn_el.click()
                                             clicks_k += 1
                                             found_click = True
                                             self.browser.sleep(0.2)
@@ -2792,7 +3283,10 @@ Responde con una línea por puesto en formato "Puesto: Requisito":"""
                                     req.replace(" ", "").lower() in btn_text.replace(" ", "").lower()):
                                     print(f"[INFO] {row['label']} -> {btn_text}")
                                     try:
-                                        btn_el.click()
+                                        try:
+                                            btn_el.evaluate("el => el.click()")
+                                        except:
+                                            btn_el.click()
                                         clicked += 1
                                         self.browser.sleep(0.2)  # Más rápido
                                     except:
@@ -2829,6 +3323,21 @@ Responde con una línea por puesto en formato "Puesto: Requisito":"""
             
             # 1. Encontrar zonas de 'Waiting answer'
             zone_elements = self.browser.page.query_selector_all("button:has-text('Waiting answer')")
+            
+            # NUEVO: Resetear cualquier respuesta pre-llenada de intentos anteriores
+            prefilled_btns = self.browser.page.query_selector_all("button.opt-1")
+            if len(prefilled_btns) > 0:
+                print(f"[INFO] Detectadas {len(prefilled_btns)} respuestas pre-llenadas. Reseteando...")
+                for btn in prefilled_btns:
+                    try:
+                        btn.click()
+                        self.browser.sleep(0.1)
+                    except: pass
+                self.browser.sleep(0.3)
+                # Re-obtener zonas después del reset
+                zone_elements = self.browser.page.query_selector_all("button:has-text('Waiting answer')")
+                print(f"[INFO] Después del reset: {len(zone_elements)} zonas pendientes")
+            
             if not zone_elements:
                 print("[WARNING] No se encontraron zonas drop")
                 return False
@@ -3114,12 +3623,13 @@ Respuesta:"""
             for card in potential_cards:
                 # Verificar si este card tiene botones
                 buttons = card.query_selector_all("button")
-                # Filtramos botones que sean opciones (no el botón de audio ni iconos)
+                # Filtramos botones que sean opciones (no el botón de audio ni iconos ni Exit)
                 option_buttons = [
                     btn for btn in buttons 
                     if len(btn.inner_text().strip()) > 1 # Texto significativo
                     and not btn.query_selector("svg") # No iconos solos
                     and "Waiting" not in btn.inner_text()
+                    and "exit" not in (btn.get_attribute("title") or "").lower() # No Exit button
                 ]
                 
                 if len(option_buttons) >= 2:
@@ -3202,7 +3712,7 @@ Instrucciones:
                                     best_btn = opt['element']
                                     break
                                     
-                        if best_btn:
+                        if best_btn and self._is_safe_button(best_btn):
                             try:
                                 best_btn.click()
                                 print(f"[INFO] P {i+1} (Known) -> Click en '{best_btn.inner_text()}'")
@@ -3237,7 +3747,7 @@ Instrucciones:
                                     best_btn = opt['element']
                                     break
                             
-                            if best_btn:
+                            if best_btn and self._is_safe_button(best_btn):
                                 try:
                                     best_btn.click()
                                     print(f"[INFO] P {idx+1} -> Click en '{best_btn.inner_text()}'")
@@ -3264,3 +3774,116 @@ Instrucciones:
         except Exception as e:
             print(f"[ERROR] Error en inline choice: {e}")
             return False
+
+    def solve_sentence_join(self, question_text: str) -> bool:
+        """
+        Resuelve preguntas de DRAW A LINE TO JOIN THE SENTENCES.
+        
+        MEJORADO: Ahora verifica si las respuestas actuales son correctas
+        comparando con el conocimiento aprendido. Si no coinciden, resetea
+        y vuelve a llenar.
+        """
+        try:
+            print("[INFO] Resolviendo pregunta de SENTENCE JOIN...")
+            
+            # Obtener contexto para signature
+            breadcrumb = ""
+            try:
+                bc_el = self.browser.page.query_selector("p.text-xs.font-bold, p.tracking-widest")
+                if bc_el:
+                    breadcrumb = bc_el.inner_text().strip()
+            except: pass
+            
+            # Verificar si hay zonas pendientes
+            waiting_btns = self.browser.page.query_selector_all("button:has-text('Waiting answer')")
+            opt_btns = self.browser.page.query_selector_all("button.opt-1")
+            
+            if len(waiting_btns) > 0:
+                # Hay zonas pendientes - usar solve_text_match para llenarlas
+                print("[INFO] Pregunta tiene zonas pendientes. Delegando a solve_text_match...")
+                return self.solve_text_match(question_text)
+            
+            if len(opt_btns) == 0:
+                print("[WARNING] No se encontraron elementos para resolver")
+                return False
+            
+            # La pregunta ya tiene respuestas - verificar si son correctas
+            print("[INFO] Pregunta pre-llena. Verificando respuestas...")
+            
+            # 1. Extraer oraciones (items) y respuestas actuales
+            sentences = []
+            current_answers = []
+            
+            for btn in opt_btns:
+                try:
+                    # Extraer la respuesta actual del boton
+                    answer_text = btn.inner_text().strip()
+                    current_answers.append(answer_text)
+                    
+                    # Extraer la oracion asociada (h2 en el mismo contenedor)
+                    sentence = btn.evaluate("""el => {
+                        let container = el.closest('.flex-col') || el.closest('.shadow-sm') || el.closest('.rounded-xl');
+                        if (container) {
+                            let h2 = container.querySelector('h2');
+                            if (h2) return h2.innerText.trim();
+                        }
+                        return '';
+                    }""")
+                    sentences.append(sentence or f"Sentence {len(sentences)+1}")
+                except Exception as e:
+                    print(f"[WARNING] Error extrayendo: {e}")
+                    continue
+            
+            print(f"[DEBUG] Oraciones: {sentences}")
+            print(f"[DEBUG] Respuestas actuales: {current_answers}")
+            
+            # 2. Buscar conocimiento aprendido
+            # Usar las respuestas ACTUALES como parte de la signature (para que coincida con cómo se guardó)
+            options_str = " | ".join(current_answers)
+            full_context = f"TITLE: {breadcrumb} || OPTIONS: {options_str}"
+            known_answers = self.try_solve_with_knowledge(question_text, full_context)
+            
+            if known_answers:
+                print(f"[KNOWLEDGE] Respuestas aprendidas: {known_answers}")
+                
+                # 3. Comparar respuestas actuales con las aprendidas
+                # Las respuestas aprendidas estan en orden correcto (posicion 1, 2, 3, 4...)
+                if len(known_answers) == len(current_answers):
+                    all_correct = True
+                    for i, (current, learned) in enumerate(zip(current_answers, known_answers)):
+                        if current.lower().strip() != learned.lower().strip():
+                            print(f"[INFO] Posicion {i+1} incorrecta: '{current}' deberia ser '{learned}'")
+                            all_correct = False
+                    
+                    if all_correct:
+                        print("[INFO] Todas las respuestas son correctas!")
+                    else:
+                        print("[INFO] Respuestas incorrectas. Reseteando...")
+                        # 4. Resetear - hacer click en cada boton opt-1 para quitar la respuesta
+                        for btn in opt_btns:
+                            try:
+                                btn.click()
+                                self.browser.sleep(0.15)
+                            except: pass
+                        
+                        self.browser.sleep(0.3)
+                        
+                        # 5. Ahora hay Waiting answer - delegar a text_match
+                        print("[INFO] Delegando a solve_text_match para re-llenar...")
+                        return self.solve_text_match(question_text)
+            
+            # 6. Hacer CHECK
+            print("[INFO] Haciendo click en CHECK...")
+            self._click_check_button()
+            self.browser.sleep(0.8)
+            self.learn_from_mistake(question_text, full_context)
+            self._click_ok_modal()
+            self.browser.sleep(self.delay)
+            return True
+            
+        except Exception as e:
+            print(f"[ERROR] Error en sentence_join: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
