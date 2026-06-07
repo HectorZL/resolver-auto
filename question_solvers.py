@@ -10,6 +10,8 @@ from typing import List, Dict, Any, Optional
 from playwright.sync_api import Page, Locator
 from selectors import SELECTORS
 
+import db_manager
+
 class QuestionSolvers:
     """Handles solving all question types for the exam bot."""
     
@@ -26,25 +28,51 @@ class QuestionSolvers:
         self.browser = browser
         self.solver = solver
         self.config = config
-        self.delay = 1
+        self.delay = delay
 
-        self.knowledge_file = "learned_answers.json"
-        self.knowledge = self._load_knowledge()
+        # Cargar conocimiento desde SQLite (WAL mode, multi-proceso seguro)
+        db_manager.init_db()
+        db_manager.migrate_from_json()
+        self.knowledge = db_manager.load_all_knowledge()
 
-    def _load_knowledge(self) -> Dict:
-        if os.path.exists(self.knowledge_file):
+    def _has_relevant_images(self) -> bool:
+        """Verifica rápidamente si la página contiene imágenes relevantes (excluye logos/iconos).
+
+        Útil para decidir si vale la pena tomar un screenshot antes de llamar a Gemini.
+        Ahorra ~200-300ms por pregunta sin imagen.
+        """
+        img_selectors = [
+            "img[alt='Descripción de la imagen']",
+            ".question-container img",
+            "img:not([src*='logo']):not([src*='icon']):not([src*='avatar']):not([class*='icon']):not([class*='logo'])"
+        ]
+        for sel in img_selectors:
             try:
-                with open(self.knowledge_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except: return {}
-        return {}
+                locator = self.browser.page.locator(sel)
+                count = locator.count()
+                for i in range(count):
+                    el = locator.nth(i)
+                    if el.is_visible():
+                        box = el.bounding_box()
+                        if box and box['width'] > 40 and box['height'] > 40:
+                            return True
+            except:
+                continue
+        return False
 
-    def _save_knowledge(self):
-        try:
-            with open(self.knowledge_file, 'w', encoding='utf-8') as f:
-                json.dump(self.knowledge, f, indent=2, ensure_ascii=False)
-        except Exception as e:
-            print(f"[ERROR] Saving knowledge: {e}")
+    def _save_knowledge(self, signature: str, answers: List[str]):
+        """Persiste una entrada de conocimiento en SQLite inmediatamente.
+        
+        Ya no usa batching: SQLite maneja writes atómicos de forma eficiente.
+        """
+        db_manager.save_knowledge(signature, answers)
+        # Mantener el dict en memoria como caché para lecturas rápidas
+        self.knowledge[signature] = answers
+    
+    def flush_knowledge(self):
+        """Método público — ya no es necesario forzar escritura (SQLite persiste inmediatamente).
+        Se mantiene para compatibilidad con llamadas externas."""
+        pass
 
     def _get_question_signature(self, text: str, extra_context: str = "", image_id: str = "") -> str:
         """Genera una clave legible para la pregunta basada en contexto y opcionalmente un identificador visual.
@@ -125,10 +153,16 @@ class QuestionSolvers:
         try:
             # Check for error icon/modal
             error_icon = self.browser.page.locator(".swal2-icon-error")
-            # Locator.is_visible() does not take arguments. Use Page.is_visible(selector) or wait_for.
-            if self.browser.page.is_visible(".swal2-icon-error", timeout=2000):
-                # Esperar un momento para que el contenido del modal cargue completamente
-                self.browser.sleep(0.8)
+            if error_icon.is_visible():
+                # Esperar dinámicamente a que el contenido del modal cargue (en lugar de sleep fijo)
+                try:
+                    self.browser.page.wait_for_selector(
+                        "#swal2-html-container",
+                        state="visible",
+                        timeout=2000
+                    )
+                except:
+                    pass
                 
                 # IMPORTANTE: Siempre aprender, incluso para preguntas de imagen.
                 # El bypass solo aplica para RECUPERAR respuestas del Knowledge Base,
@@ -169,8 +203,7 @@ class QuestionSolvers:
 
                     if answers_list:
                         sig = self._get_question_signature(question_text, extra_context, image_id)
-                        self.knowledge[sig] = answers_list
-                        self._save_knowledge()
+                        self._save_knowledge(sig, answers_list)
                         print(f"[LEARNING] Aprendido para '{sig}': {answers_list}")
                         return True
                     else:
@@ -214,6 +247,21 @@ class QuestionSolvers:
             return answers # Return the list for the specific solver to use
         return None
     
+    def _wait_for_modal_ready(self, timeout: float = 4.0):
+        """Espera dinámicamente a que aparezca el modal de respuesta (SweetAlert2) tras clickear CHECK.
+        
+        Reemplaza los 'sleep(0.2)' fijos después de CHECK con una espera condicional
+        que retorna en cuanto el modal es visible o la animación termina.
+        """
+        try:
+            self.browser.page.wait_for_selector(
+                ".swal2-container, .swal2-icon-error, #swal2-html-container",
+                state="visible",
+                timeout=int(timeout * 1000)
+            )
+        except:
+            pass
+
     def _click_check_button(self) -> bool:
         """Hace click en el botón CHECK."""
         try:
@@ -249,10 +297,27 @@ class QuestionSolvers:
             return False
     
     def _click_ok_modal(self) -> bool:
-        """Hace click en el botón OK del modal de confirmación (SweetAlert2). Intenta varias veces."""
+        """Hace click en el botón OK del modal de confirmación (SweetAlert2). Usa esperas dinámicas."""
         try:
-            # Intentar clickear hasta 5 veces (aprox 3-4 segundos)
-            for i in range(5):
+            start_time = time.time()
+            max_duration = 8  # Timeout de seguridad para evitar hangs infinitos
+            
+            # Esperar dinámicamente a que el modal esté visible (si no lo está ya)
+            try:
+                self.browser.page.wait_for_selector(
+                    ".swal2-confirm, .swal2-actions button, button:has-text('OK')",
+                    state="visible",
+                    timeout=3000
+                )
+            except:
+                pass
+            
+            # Intentar clickear hasta 3 veces
+            for i in range(3):
+                if time.time() - start_time > max_duration:
+                    print(f"[WARNING] Timeout waiting for OK modal")
+                    return True
+                
                 # Selectores para el botón OK
                 ok_selectors = [
                     "button.swal2-confirm",
@@ -266,43 +331,52 @@ class QuestionSolvers:
                 for selector in ok_selectors:
                     try:
                         if self.browser.page.locator(selector).is_visible():
-                            # Forzar click si es necesario
                             self.browser.page.locator(selector).click(force=True)
                             print(f"[INFO] Click en OK del modal ({selector})")
                             found = True
-                            self.browser.sleep(0.1)
                             break
                     except:
                         continue
                 
-                # Verificar si el contenedor del modal sigue visible
-                still_visible = False
-                try:
-                    # swal2-container suele ser el wrapper overlay
-                    if self.browser.page.locator(".swal2-container").is_visible():
-                         still_visible = True
-                except: pass
-                
-                if found and not still_visible:
-                    # Pequeña pausa extra para estar seguros de que el overlay desapareció
-                    self.browser.sleep(0.3)
+                if found:
+                    # Esperar dinámicamente a que el modal se cierre
+                    try:
+                        self.browser.page.wait_for_selector(
+                            ".swal2-container",
+                            state="hidden",
+                            timeout=2000
+                        )
+                    except:
+                        pass
                     return True
                 
-                # Si no encontramos botón pero tampoco hay modal visible (y ya esperamos un poco), asumimos éxito/ausencia
-                if not found and not still_visible and i > 0:
-                     return True
-
-                self.browser.sleep(0.3) # Intervalo más largo para dar tiempo a animaciones (SweetAlert2)
+                if i == 0:
+                    # Solo esperar con wait_for_selector en el primer intento
+                    try:
+                        self.browser.page.wait_for_selector(
+                            ".swal2-container",
+                            state="visible",
+                            timeout=1500
+                        )
+                    except:
+                        pass
+                else:
+                    self.browser.sleep(0.15)
             
             return False
             
         except Exception as e:
             print(f"[DEBUG] Error en _click_ok_modal: {e}")
-            # Si falla, no bloqueamos el flujo
             return True
 
     def solve_multiple_choice(self, question_text: str) -> bool:
         """Resuelve preguntas de opción múltiple con mejor extracción de texto de lectura."""
+        max_duration = 120
+        start_time = time.time()
+        
+        def _is_timed_out():
+            return time.time() - start_time > max_duration
+        
         try:
             # --- HARDCODED ANSWERS START ---
             if "DO MOST PEOPLE CELEBRATE THEIR BIRTHDAY WITH A PARTY" in question_text.upper():
@@ -406,46 +480,54 @@ class QuestionSolvers:
                         if audio_url:
                             print(f"[INFO] URL de audio: {audio_url[:80]}...")
                             
-                            # Descargar audio
-                            if audio_url.startswith("blob:"):
-                                print("[INFO] Convirtiendo blob URL a bytes...")
-                                audio_base64 = self.browser.page.evaluate("""
-                                    async (audioUrl) => {
-                                        const response = await fetch(audioUrl);
-                                        const blob = await response.blob();
-                                        return new Promise((resolve) => {
-                                            const reader = new FileReader();
-                                            reader.onloadend = () => resolve(reader.result.split(',')[1]);
-                                            reader.readAsDataURL(blob);
-                                        });
-                                    }
-                                """, audio_url)
-                                import base64
-                                audio_bytes = base64.b64decode(audio_base64)
-                            else:
-                                import requests
-                                response = requests.get(audio_url, timeout=10)
-                                audio_bytes = response.content
-                            
-                            print(f"[INFO] Audio descargado: {len(audio_bytes)} bytes")
-                            
-                            # Analizar con Gemini (con reintento en caso de error)
+                            # Descargar audio (con protección contra fallos)
                             try:
-                                result = self.solver.analyze_audio_question(audio_bytes, question_text, temp_options)
-                                if "error" in result:
-                                    print(f"[WARNING] Reintentando análisis de audio tras error: {result['error']}")
-                                    result = self.solver.analyze_audio_question(audio_bytes, question_text, temp_options)
-                            except Exception as e_audio:
-                                print(f"[ERROR] Excepción crítica en análisis de audio: {e_audio}")
-                                result = {"answer_index": -1}
-
-                            audio_answer_index = result.get("answer_index", -1)
+                                if audio_url.startswith("blob:"):
+                                    print("[INFO] Convirtiendo blob URL a bytes...")
+                                    audio_base64 = self.browser.page.evaluate("""
+                                        async (audioUrl) => {
+                                            const response = await fetch(audioUrl);
+                                            const blob = await response.blob();
+                                            return new Promise((resolve) => {
+                                                const reader = new FileReader();
+                                                reader.onloadend = () => resolve(reader.result.split(',')[1]);
+                                                reader.readAsDataURL(blob);
+                                            });
+                                        }
+                                    """, audio_url)
+                                    import base64
+                                    audio_bytes = base64.b64decode(audio_base64)
+                                else:
+                                    import requests
+                                    response = requests.get(audio_url, timeout=10)
+                                    audio_bytes = response.content
+                                
+                                print(f"[INFO] Audio descargado: {len(audio_bytes)} bytes")
+                            except Exception as e_download:
+                                print(f"[ERROR] Falló la descarga de audio: {e_download}")
+                                audio_bytes = None
                             
-                            if audio_answer_index >= 0 and audio_answer_index < len(temp_options):
-                                print(f"[INFO] ✅ Gemini sugiere (audio): {temp_options[audio_answer_index]}")
-                            else:
-                                print(f"[WARNING] No se pudo obtener respuesta de audio válida (Índice: {audio_answer_index})")
+                            if audio_bytes is None:
+                                print("[WARNING] No se pudo descargar audio. Continuando sin él.")
                                 audio_answer_index = -1
+                            else:
+                                # Analizar con Gemini (con reintento en caso de error)
+                                try:
+                                    result = self.solver.analyze_audio_question(audio_bytes, question_text, temp_options)
+                                    if "error" in result:
+                                        print(f"[WARNING] Reintentando análisis de audio tras error: {result['error']}")
+                                        result = self.solver.analyze_audio_question(audio_bytes, question_text, temp_options)
+                                except Exception as e_audio:
+                                    print(f"[ERROR] Excepción crítica en análisis de audio: {e_audio}")
+                                    result = {"answer_index": -1}
+
+                                audio_answer_index = result.get("answer_index", -1)
+                                
+                                if audio_answer_index >= 0 and audio_answer_index < len(temp_options):
+                                    print(f"[INFO] ✅ Gemini sugiere (audio): {temp_options[audio_answer_index]}")
+                                else:
+                                    print(f"[WARNING] No se pudo obtener respuesta de audio válida (Índice: {audio_answer_index})")
+                                    audio_answer_index = -1
                         else:
                             print("[WARNING] No se pudo extraer URL del audio")
                 except Exception as e:
@@ -453,7 +535,12 @@ class QuestionSolvers:
                     print("[INFO] Continuando con flujo normal de multiple_choice...")
             
             # ====== FIN DE PROCESAMIENTO DE AUDIO ======
-
+            
+            # Verificar timeout después del procesamiento de audio (que puede ser lento)
+            if _is_timed_out():
+                print(f"[SAFETY] solve_multiple_choice excedió {max_duration}s (post-audio). Saliendo...")
+                return False
+            
             # Extraer opciones
             options = []
             option_elements = []
@@ -671,18 +758,18 @@ class QuestionSolvers:
                          if target_ans in opt_norm or opt_norm in target_ans:
                              found_idx = i
                              break
-                 
+                
                  if found_idx != -1:
                      print(f"[INFO] Encontrado match aprendido en índice {found_idx}")
                      option_elements[found_idx].click()
                      self.browser.sleep(0.1)
                      self._click_check_button()
-                     self.browser.sleep(0.2)
+                     self._wait_for_modal_ready()
                      # Learn again using the SAME context (text + options) AND image_id
                      self.learn_from_mistake(question_text, full_context_for_sig, image_id) 
                      self._click_ok_modal()
                      print("[SUCCESS] Pregunta contestada via knowledge.")
-                     self.browser.sleep(self.delay)
+                     
                      return True
                  else:
                      print(f"[WARNING] No se encontró la opción aprendida '{target_ans}' entre {options}")
@@ -694,6 +781,7 @@ class QuestionSolvers:
             is_reading_comprehension = any(word in q_lower for word in ['read the text', 'according to', 'paragraph', 'read the piece of text', 'paragragh'])
             
             # ====== DECISIÓN: Usar respuesta de AUDIO o llamar a Gemini ======
+            answer_index = -1  # Inicializar antes de las ramas condicionales
             if audio_answer_index >= 0:
                 # Ya tenemos la respuesta del audio, usarla directamente
                 answer_index = audio_answer_index
@@ -705,6 +793,11 @@ class QuestionSolvers:
                 # MODO SOLO TEXTO - El 90% de las preguntas
                 screenshot = None
                 print("[INFO] ⚡ Usando modo OPTIMIZADO (solo texto, sin screenshot)")
+                
+                # Verificar timeout antes de llamar a Gemini
+                if _is_timed_out():
+                    print(f"[SAFETY] solve_multiple_choice excedió {max_duration}s (pre-Gemini). Saliendo...")
+                    return False
                 
                 # Construir prompt específico según tipo de pregunta
                 print("[DEBUG] Step: Generating content with Gemini...")
@@ -726,7 +819,7 @@ Ejemplo: [ANSWER]{options[0] if options else 'text'}[/ANSWER]
 {question_text}
 
 TEXTO DE LECTURA:
-{reading_text[:2500]}
+ {reading_text[:1000]}
 
 OPCIONES DISPONIBLES:
 {options}
@@ -740,7 +833,7 @@ Ejemplo: [ANSWER]{options[0] if options else 'text'}[/ANSWER]"""
                     prompt = f"""PREGUNTA: {question_text}
 
 TEXTO/CONTEXTO:
-{reading_text[:2000]}
+{reading_text[:1000]}
 
 OPCIONES: {options}
 
@@ -766,7 +859,7 @@ Ejemplo: [ANSWER]{options[0] if options else 'text'}[/ANSWER]"""
                         
                         # Update prompt for ELSE case if reading text is empty
                         if "TEXTO/CONTEXTO:" in prompt and not clean_reading.strip():
-                             prompt = prompt.replace(f"TEXTO/CONTEXTO:\n{reading_text[:2000]}", "")
+                             prompt = prompt.replace(f"TEXTO/CONTEXTO:\n{reading_text[:1000]}", "")
 
                         # Debug Prompt Size
                         print(f"[DEBUG] Prompt size: {len(prompt)} chars")
@@ -849,7 +942,7 @@ Ejemplo: [ANSWER]{options[0] if options else 'text'}[/ANSWER]"""
                         answer_index = 0
             
             # --- VALIDATION ---
-            if 'answer_index' not in locals():
+            if answer_index == -1:
                 answer_index = 0
 
             if answer_index < 0 or answer_index >= len(options):
@@ -867,14 +960,14 @@ Ejemplo: [ANSWER]{options[0] if options else 'text'}[/ANSWER]"""
             
             # Click en CHECK
             self._click_check_button()
-            self.browser.sleep(1.0)  # Esperar 1s para que el modal de respuesta correcta cargue
+            self._wait_for_modal_ready()
             
             # Aprender de errores (si aplica)
             self.learn_from_mistake(question_text, full_context_for_sig, image_id)
             self._click_ok_modal()
             
             print(f"[SUCCESS] Pregunta (multiple choice) respondida")
-            self.browser.sleep(self.delay)
+            
             return True
             
         except Exception as e:
@@ -884,6 +977,12 @@ Ejemplo: [ANSWER]{options[0] if options else 'text'}[/ANSWER]"""
 
     def solve_audio_question(self, question_text: str) -> bool:
         """Resuelve preguntas de listening con audio."""
+        max_duration = 120
+        start_time = time.time()
+        
+        def _is_timed_out():
+            return time.time() - start_time > max_duration
+        
         try:
             print("[INFO] Detectado audio en la pregunta")
             
@@ -927,6 +1026,11 @@ Ejemplo: [ANSWER]{options[0] if options else 'text'}[/ANSWER]"""
                     response = requests.get(audio_url, timeout=10)
                     audio_bytes = response.content
                     print(f"[INFO] Audio descargado: {len(audio_bytes)} bytes")
+                    
+                    # Verificar timeout después de descarga de audio
+                    if _is_timed_out():
+                        print(f"[SAFETY] solve_audio_question excedió {max_duration}s (post-audio). Saliendo...")
+                        return False
             except Exception as e:
                 print(f"[ERROR] Error descargando audio: {e}")
                 return False
@@ -990,6 +1094,11 @@ Ejemplo: [ANSWER]{options[0] if options else 'text'}[/ANSWER]"""
                     self._click_ok_modal()
                     return True
             
+            # Verificar timeout antes de llamar a Gemini
+            if _is_timed_out():
+                print(f"[SAFETY] solve_audio_question excedió {max_duration}s. Saliendo...")
+                return False
+            
             # --- GEMINI GENERATION ---
             # Enviar a Gemini para análisis con reintento
             print("[INFO] Enviando audio a Gemini para análisis...")
@@ -1024,7 +1133,7 @@ Ejemplo: [ANSWER]{options[0] if options else 'text'}[/ANSWER]"""
             self.learn_from_mistake(question_text, ctx_sig)
             
             print(f"[SUCCESS] Pregunta de audio respondida")
-            self.browser.sleep(self.delay)
+            
             return True
             
         except Exception as e:
@@ -1037,6 +1146,12 @@ Ejemplo: [ANSWER]{options[0] if options else 'text'}[/ANSWER]"""
         Resuelve preguntas de llenar espacios con inputs.
         OPTIMIZADO: Usa page.evaluate para extracción masiva y evita round-trips.
         """
+        max_duration = 120
+        start_time = time.time()
+        
+        def _is_timed_out():
+            return time.time() - start_time > max_duration
+        
         try:
             # OPTIMIZATION: Extract all hints and inputs in ONE go using JavaScript
             # This also assigns unique IDs to inputs to make filling them instant
@@ -1144,10 +1259,10 @@ Ejemplo: [ANSWER]{options[0] if options else 'text'}[/ANSWER]"""
                 if filled_k > 0:
                      self.browser.sleep(0.1)
                      self._click_check_button()
-                     self.browser.sleep(0.2)
+                     self._wait_for_modal_ready()
                      self.learn_from_mistake(question_text, full_context_sig)
                      self._click_ok_modal()
-                     self.browser.sleep(self.delay)
+                     
                      return True
             
             # --- GEMINI GENERATION (unchanged logic, just using new data structure) ---
@@ -1177,8 +1292,16 @@ INSTRUCCIONES:
 - Responde con UNA palabra o frase corta por línea
 - Responde en el MISMO ORDEN que las preguntas"""
             
+            # Verificar timeout antes de llamar a Gemini
+            if _is_timed_out():
+                print(f"[SAFETY] solve_fill_blanks excedió {max_duration}s. Saliendo...")
+                return False
+            
             # Call Gemini
-            result = self.solver.model.generate_content(prompt)
+            result = self.solver.model.generate_content(
+                prompt,
+                request_options={"timeout": 45}
+            )
             response = result.text.strip()
             print(f"[DEBUG] Gemini responde:\n{response}")
             
@@ -1219,7 +1342,7 @@ INSTRUCCIONES:
             self._click_ok_modal()
             
             print(f"[SUCCESS] Pregunta (fill blanks) respondida")
-            self.browser.sleep(self.delay)
+            
             return True
             
         except Exception as e:
@@ -1230,6 +1353,12 @@ INSTRUCCIONES:
 
     def solve_login_screen(self) -> bool:
         """Maneja la pantalla de login si aparece en medio de la actividad."""
+        max_duration = 60
+        start_time = time.time()
+        
+        def _is_timed_out():
+            return time.time() - start_time > max_duration
+        
         try:
             print("[INFO] Detectada pantalla de Login. Intentando autenticación automática...")
             
@@ -1252,7 +1381,11 @@ INSTRUCCIONES:
                 
                 print("[INFO] Click en Ingresar")
                 self.browser.page.click("button[type='submit']")
-                self.browser.sleep(0.5) # Wait for redirects
+                # Esperar dinámicamente la redirección post-login
+                try:
+                    self.browser.page.wait_for_load_state("networkidle", timeout=10000)
+                except:
+                    pass
                 
                 # Verificar si salimos del login
                 if not self.browser.page.locator("#mail-address").is_visible():
@@ -1274,6 +1407,12 @@ INSTRUCCIONES:
         correct_orders = []
         result = ""
         """Resuelve preguntas de ordenar oraciones (optimizado para velocidad)."""
+        max_duration = 120
+        start_time = time.time()
+        
+        def _is_timed_out():
+            return time.time() - start_time > max_duration
+        
         try:
             print("[INFO] Resolviendo pregunta de ordenar oraciones...")
             
@@ -1306,7 +1445,7 @@ INSTRUCCIONES:
                 
                 try:
                     droppable.scroll_into_view_if_needed()
-                    self.browser.sleep(0.2)
+                    self.browser.sleep(0.1)
                 except:
                     pass
                 
@@ -1584,6 +1723,11 @@ INSTRUCCIONES:
                     self._click_ok_modal()
                     return True
 
+            # Verificar timeout antes de Gemini
+            if _is_timed_out():
+                print(f"[SAFETY] solve_sentence_ordering excedió {max_duration}s. Saliendo...")
+                return False
+            
             # 4. GEMINI (Si no hay nada más)
             if not correct_orders:
                 prompt_parts = []
@@ -1687,7 +1831,7 @@ FORMATO DE RESPUESTA REQUERIDO (muy importante usar |):
                                         
                                         # Soltar
                                         self.browser.page.keyboard.press("Space")
-                                        self.browser.sleep(0.15)  # Pequeña pausa para que React actualice
+                                        self.browser.sleep(0.08)  # Pausa mínima para React (animaciones deshabilitadas)
                                         
                                         print(f"[INFO] '{correct_word}' movido de {current_pos} → {target_pos}")
                                         moved = True
@@ -1704,15 +1848,13 @@ FORMATO DE RESPUESTA REQUERIDO (muy importante usar |):
                         break
             
             # 5. CHECK FINAL
-            # 5. CHECK FINAL
-            self.browser.sleep(0.1)
             self._click_check_button()
-            self.browser.sleep(0.1)
+            self._wait_for_modal_ready()
             self.learn_from_mistake(question_text, ctx_sentences)
             self._click_ok_modal()
             
             print(f"[SUCCESS] Pregunta (sentence ordering) respondida")
-            self.browser.sleep(self.delay)
+            
             return True
             
         except Exception as e:
@@ -1722,6 +1864,12 @@ FORMATO DE RESPUESTA REQUERIDO (muy importante usar |):
 
     def solve_with_screenshot(self, question_text: str) -> bool:
         """Resuelve pregunta desconocida usando screenshot + HTML + análisis visual."""
+        max_duration = 120
+        start_time = time.time()
+        
+        def _is_timed_out():
+            return time.time() - start_time > max_duration
+        
         try:
             print("[INFO] Tipo de pregunta desconocido, usando análisis visual + HTML...")
             
@@ -1730,16 +1878,91 @@ FORMATO DE RESPUESTA REQUERIDO (muy importante usar |):
                 print("[INFO] Detectado formulario de Login (heurística).")
                 return self.solve_login_screen()
 
-            # 1. Tomar screenshot
-            screenshot = self.browser.screenshot()
-            print("[INFO] Screenshot capturado")
-            
+            # 1. Verificar si hay imagen relevante antes de tomar screenshot
+            has_image = self._has_relevant_images()
+            screenshot = None
+
+            if has_image:
+                screenshot = self.browser.screenshot()
+                if screenshot:
+                    print("[INFO] 📸 Screenshot capturado para análisis visual")
+                else:
+                    print("[INFO] ⚡ Falló captura de screenshot. Usando modo solo texto.")
+            else:
+                print("[INFO] ⚡ Sin imagen detectada. Analizando solo con HTML.")
+
             # 2. Capturar HTML de la página (área principal de contenido)
             html_content = self.browser.get_page_html("main") or self.browser.get_page_html("body")
             print(f"[INFO] HTML capturado ({len(html_content)} caracteres)")
             
-            # 3. Analizar con Gemini (imagen + HTML)
-            result = self.solver.analyze_unknown_question(screenshot, html_content, question_text)
+            # Verificar timeout antes de analizar con Gemini
+            if _is_timed_out():
+                print(f"[SAFETY] solve_with_screenshot excedió {max_duration}s. Saliendo...")
+                return False
+            
+            # 3. Analizar con Gemini (imagen + HTML) o solo HTML si no hay imagen
+            if screenshot:
+                result = self.solver.analyze_unknown_question(screenshot, html_content, question_text)
+            else:
+                # Análisis solo con HTML (texto) cuando no hay imagen
+                html_truncated = self.solver._truncate_html(html_content) if hasattr(self.solver, '_truncate_html') else html_content[:2000]
+                text_prompt = f"""Eres un experto en automatización web y exámenes de inglés.
+Analiza el código HTML para entender el tipo de pregunta y cómo resolverla.
+
+HTML DE LA PÁGINA:
+```html
+{html_content[:2000]}
+```
+
+{f"TEXTO DE LA PREGUNTA DETECTADO: {question_text}" if question_text else ""}
+
+IDENTIFICA:
+- Tipo de pregunta (drag & drop, ordenar, emparejar, audio, video, etc.)
+- Elementos interactivos (botones, inputs, áreas arrastrables, etc.)
+- Selectores CSS útiles para interactuar con los elementos
+
+RESPONDE en el siguiente formato EXACTO:
+
+TIPO_PREGUNTA: [tipo identificado]
+DESCRIPCION: [cómo funciona esta pregunta]
+RESPUESTA_CORRECTA: [la respuesta correcta si puedes determinarla]
+ESTRATEGIA: [pasos específicos para resolver la pregunta]
+SELECTORES: [selectores CSS o texto para encontrar elementos, separados por |]
+ACCIONES: [lista de acciones: CLICK, DRAG, TYPE, SELECT - separadas por |]
+
+Si hay opciones o respuestas visibles, incluye cuál es la correcta.
+"""
+
+                try:
+                    response = self.solver.model.generate_content(
+                        text_prompt,
+                        request_options={"timeout": 45}
+                    )
+                    result_text = response.text
+                    result = {
+                        "question_type": None,
+                        "description": None,
+                        "answer": None,
+                        "strategy": None,
+                        "selectors": [],
+                        "actions": [],
+                        "raw_response": result_text
+                    }
+                    # Extraer campos con regex
+                    for field, key in [('TIPO_PREGUNTA', 'question_type'), ('DESCRIPCION', 'description'),
+                                       ('RESPUESTA_CORRECTA', 'answer'), ('ESTRATEGIA', 'strategy')]:
+                        m = re.search(rf'{field}:\s*(.+?)(?:\n|$)', result_text, re.IGNORECASE)
+                        if m:
+                            result[key] = m.group(1).strip()
+                    m_sel = re.search(r'SELECTORES:\s*(.+?)(?:\n|$)', result_text, re.IGNORECASE)
+                    if m_sel:
+                        result["selectors"] = [s.strip() for s in m_sel.group(1).split('|')]
+                    m_act = re.search(r'ACCIONES:\s*(.+?)(?:\n|$)', result_text, re.IGNORECASE)
+                    if m_act:
+                        result["actions"] = [a.strip() for a in m_act.group(1).split('|')]
+                except Exception as e:
+                    print(f"[ERROR] Error en análisis HTML-only: {e}")
+                    result = {"question_type": None, "answer": None, "error": str(e)}
             
             print(f"[INFO] Tipo detectado: {result.get('question_type', 'N/A')}")
             print(f"[INFO] Descripción: {result.get('description', 'N/A')}")
@@ -1808,9 +2031,8 @@ FORMATO DE RESPUESTA REQUERIDO (muy importante usar |):
                             continue
                 
                 if success:
-                    self.browser.sleep(0.1)
                     self._click_check_button()
-                    self.browser.sleep(1)
+                    self._wait_for_modal_ready()
                     self._click_ok_modal()
                     return True
             
@@ -1829,6 +2051,12 @@ FORMATO DE RESPUESTA REQUERIDO (muy importante usar |):
 
     def solve_sentence_completion(self, question_text: str) -> bool:
         """Resuelve preguntas de completar oraciones con verbos/palabras."""
+        max_duration = 120
+        start_time = time.time()
+        
+        def _is_timed_out():
+            return time.time() - start_time > max_duration
+        
         try:
             print("[INFO] Resolviendo pregunta de completar oraciones...")
 
@@ -1912,7 +2140,7 @@ FORMATO DE RESPUESTA REQUERIDO (muy importante usar |):
                                 opt['element'].evaluate("el => el.click()")
                                 clicks_made += 1
                                 found = True
-                                self.browser.sleep(0.2)
+                                self.browser.sleep(0.1)
                             except: pass
                             break
                     
@@ -1924,14 +2152,14 @@ FORMATO DE RESPUESTA REQUERIDO (muy importante usar |):
                                     opt['element'].evaluate("el => el.click()")
                                     clicks_made += 1
                                     found = True
-                                    self.browser.sleep(0.2)
+                                    self.browser.sleep(0.1)
                                 except: pass
                                 break
                                 
                 if clicks_made > 0:
                     self.browser.sleep(0.1)
                     self._click_check_button()
-                    self.browser.sleep(0.2)
+                    self.browser.sleep(0.1)
                     self.learn_from_mistake(question_text, context_sig) # Usar la clave única mejorada
                     self._click_ok_modal()
                     return True
@@ -1940,6 +2168,11 @@ FORMATO DE RESPUESTA REQUERIDO (muy importante usar |):
             print(f"[INFO] {len(rows_data)} oraciones a completar:")
             for i, row in enumerate(rows_data):
                 print(f"  {i+1}. '{row['sentence']}' → [{', '.join([o['text'] for o in row['options']])}]")
+            
+            # Verificar timeout antes de llamar a Gemini
+            if _is_timed_out():
+                print(f"[SAFETY] solve_sentence_completion excedió {max_duration}s. Saliendo...")
+                return False
             
             # 2. Crear prompt conciso para Gemini
             sentences_text = ""
@@ -2026,7 +2259,7 @@ INSTRUCCIONES CRÍTICAS:
                                 # Fix: Forzar click por javascript para ignorar obstáculos visuales CSS
                                 matched_opt['element'].evaluate("el => el.click()")
                                 clicked += 1
-                                self.browser.sleep(0.2)
+                                self.browser.sleep(0.1)
                             except Exception as js_err:
                                 print(f"[WARNING] JS Click en oración falló ({js_err}). Intentando click global...")
                                 try:
@@ -2038,14 +2271,13 @@ INSTRUCCIONES CRÍTICAS:
             print(f"[INFO] Clicks realizados: {clicked}")
             
             # 4. CHECK
-            self.browser.sleep(0.1)
             self._click_check_button()
-            self.browser.sleep(0.2)
+            self._wait_for_modal_ready()
             self.learn_from_mistake(question_text, context_sig)
             self._click_ok_modal()
             
             print(f"[SUCCESS] Pregunta (sentence completion) respondida")
-            self.browser.sleep(self.delay)
+            
             return True
             
         except Exception as e:
@@ -2055,22 +2287,39 @@ INSTRUCCIONES CRÍTICAS:
 
     def solve_matching_buttons(self, question_text: str) -> bool:
         """Resuelve preguntas de matching con múltiples botones por fila."""
+        max_duration = 120
+        start_time = time.time()
+        
+        def _is_timed_out():
+            return time.time() - start_time > max_duration
+        
         try:
             print("[INFO] Resolviendo pregunta de BOTONES EN LÍNEA / MATCHING...")
-            self.browser.sleep(1)
-            
-
-            
-
-
-            # 1. Tomar screenshot para análisis visual (con timeout handling)
-            screenshot = None
+            # Esperar a que la página termine de cargar antes de extraer
             try:
-                screenshot = self.browser.screenshot()
-            except Exception as screenshot_err:
-                print(f"[WARNING] No se pudo tomar screenshot (continuando sin imagen): {screenshot_err}")
-                screenshot = None
+                self.browser.page.wait_for_load_state("networkidle", timeout=5000)
+            except:
+                pass
+            self.browser.sleep(0.1)
             
+
+            
+
+
+            # 1. Verificar si hay imagen relevante ANTES de tomar screenshot
+            has_image = self._has_relevant_images()
+            screenshot = None
+
+            if has_image:
+                try:
+                    screenshot = self.browser.screenshot()
+                    print("[INFO] 📸 Screenshot capturado para análisis visual")
+                except Exception as screenshot_err:
+                    print(f"[WARNING] No se pudo tomar screenshot (continuando sin imagen): {screenshot_err}")
+                    screenshot = None
+            else:
+                print("[INFO] ⚡ Sin imagen detectada. Modo solo texto (sin screenshot).")
+
             # 2. Extraer las filas y sus opciones de forma robusta
             rows_data = []
             
@@ -2135,9 +2384,6 @@ INSTRUCCIONES CRÍTICAS:
             for row in rows_data:
                 print(f"  - '{row['label']}': {[opt['text'] for opt in row['options']]}")
             
-            # Detectar imagen y párrafo de texto
-            has_image = self.browser.page.query_selector("img[alt='Descripción de la imagen']") is not None
-            
             # Buscar párrafo de texto (div con overflow que contiene texto de lectura)
             paragraph_text = ""
             
@@ -2194,19 +2440,23 @@ INSTRUCCIONES CRÍTICAS:
                             found_opt['element'].click()
                             print(f"[INFO] Row {i+1} (Known) -> {found_opt['text']}")
                             clicks_k += 1
-                            self.browser.sleep(0.2)
+                            self.browser.sleep(0.1)
                         except: pass
                 
                 if clicks_k > 0:
-                    self.browser.sleep(0.1)
                     self._click_check_button()
-                    self.browser.sleep(0.2)
+                    self._wait_for_modal_ready()
                     self.learn_from_mistake(unique_key, paragraph_text)
                     self._click_ok_modal()
                     return True
             
             has_sentence_structure = any("[___]" in row['label'] for row in rows_data)
 
+            # Verificar timeout antes de crear prompt para Gemini
+            if _is_timed_out():
+                print(f"[SAFETY] solve_matching_buttons excedió {max_duration}s. Saliendo...")
+                return False
+            
             # 3. Crear prompt para Gemini (Restaurado)
             options_text = ""
             for i, row in enumerate(rows_data):
@@ -2236,7 +2486,10 @@ INSTRUCCIONES CRÍTICAS:
 
 Sin asteriscos, sin explicaciones, sin formato markdown. Solo el número y TRUE o FALSE."""
                 # Sin imagen, solo texto
-                response = self.solver.model.generate_content(prompt)
+                response = self.solver.model.generate_content(
+                    prompt,
+                    request_options={"timeout": 45}
+                )
             elif is_true_false and has_image and screenshot:
                 # TRUE/FALSE con imagen
                 prompt = f"""Afirmaciones:{options_text}
@@ -2262,7 +2515,10 @@ Sin asteriscos, sin explicaciones, sin formato markdown. Solo el número y TRUE 
                     "mime_type": "image/png",
                     "data": base64.b64encode(screenshot).decode()
                 }
-                response = self.solver.model.generate_content([prompt, image_part])
+                response = self.solver.model.generate_content(
+                    [prompt, image_part],
+                    request_options={"timeout": 90}
+                )
             elif has_sentence_structure and not has_image:
                 # Completar oraciones
                 prompt = f"""Oraciones:{options_text}
@@ -2279,7 +2535,10 @@ REGLAS:
 - Elige la respuesta ÚNICAMENTE de las "Opciones Disponibles" de esa oración.
 - NO uses opciones de otras oraciones.
 Sin asteriscos, sin explicaciones, sin formato markdown."""
-                response = self.solver.model.generate_content(prompt)
+                response = self.solver.model.generate_content(
+                    prompt,
+                    request_options={"timeout": 45}
+                )
             elif screenshot:
                 # Matching con imagen (si hay screenshot disponible)
                 prompt = f"""Preguntas y Opciones:{options_text}
@@ -2301,7 +2560,10 @@ REGLAS:
                     "mime_type": "image/png",
                     "data": base64.b64encode(screenshot).decode()
                 }
-                response = self.solver.model.generate_content([prompt, image_part])
+                response = self.solver.model.generate_content(
+                    [prompt, image_part],
+                    request_options={"timeout": 90}
+                )
             else:
                 # Fallback sin imagen
                 prompt = f"""Preguntas y Opciones:{options_text}
@@ -2319,7 +2581,10 @@ REGLAS:
 - NO elijas opciones de otras preguntas.
 - ELIGE SOLO DE LAS OPCIONES MOSTRADAS. NO INVENTES PALABRAS.
 - Si es porcentaje, escribe el número (ej: 7,2%). Sin explicaciones"""
-                response = self.solver.model.generate_content(prompt)
+                response = self.solver.model.generate_content(
+                    prompt,
+                    request_options={"timeout": 45}
+                )
             
             result_text = response.text.strip()
             print(f"[DEBUG] Respuesta de Gemini:\n{result_text}")
@@ -2465,15 +2730,11 @@ REGLAS:
             
             print(f"[INFO] Clicks realizados: {clicked}")
             
-            self.browser.sleep(0.1)
-            
             # 6. Click en CHECK
             self._click_check_button()
-            self.browser.sleep(1)
+            self._wait_for_modal_ready()
             
             # 7. Click en OK del modal
-            self.browser.sleep(0.1)
-            # Ahora unique_key está definida gracias al refactor
             try:
                 # FIX: Pasar paragraph_text para que el hash coincida con try_solve_with_knowledge
                 self.learn_from_mistake(unique_key, paragraph_text)
@@ -2483,7 +2744,7 @@ REGLAS:
             self._click_ok_modal()
             
             print(f"[SUCCESS] Pregunta (matching) respondida")
-            self.browser.sleep(self.delay)
+            
             return True
             
         except Exception as e:
@@ -2493,6 +2754,12 @@ REGLAS:
 
     def solve_image_drag_match(self, question_text: str) -> bool:
         """Resuelve preguntas de matching imágenes con opciones."""
+        max_duration = 120
+        start_time = time.time()
+        
+        def _is_timed_out():
+            return time.time() - start_time > max_duration
+        
         try:
             print("[INFO] Resolviendo pregunta de matching imágenes...")
             
@@ -2514,7 +2781,7 @@ REGLAS:
                             btn.click()
                             self.browser.sleep(0.1)
                         except: pass
-                    self.browser.sleep(0.5)
+                    self.browser.sleep(0.15)
 
                     for i, target_answer in enumerate(correct_order):
                         print(f"[INFO] Hardcode Zona {i+1} -> Inyectando '{target_answer}'")
@@ -2543,7 +2810,7 @@ REGLAS:
                             print(f"[WARNING] No se pudo inyectar '{target_answer}': {e}")
                             
                     if clicks_made > 0:
-                        self.browser.sleep(0.5)
+                        self.browser.sleep(0.15)
                         # También ocultar las opciones originales abajo para ser más realistas
                         self.browser.page.evaluate('''() => {
                             const options = document.querySelectorAll(".options-container button, .flex-wrap button");
@@ -2555,7 +2822,7 @@ REGLAS:
                             });
                         }''')
                         self._click_check_button()
-                        self.browser.sleep(0.5)
+                        self._wait_for_modal_ready()
                         self._click_ok_modal()
                         return True
                         
@@ -2579,7 +2846,7 @@ REGLAS:
                         btn.click()
                         self.browser.sleep(0.1)
                     except: pass
-                self.browser.sleep(0.3)
+                self.browser.sleep(0.15)
                 # Re-obtener zonas después del reset
                 zone_elements = self.browser.page.query_selector_all("button:has-text('Waiting answer')")
                 print(f"[INFO] Después del reset: {len(zone_elements)} zonas pendientes")
@@ -2835,19 +3102,18 @@ REGLAS:
                                 best_match['element'].scroll_into_view_if_needed()
                                 best_match['element'].click(force=True)
                             clicks_k += 1
-                            self.browser.sleep(0.2)
+                            self.browser.sleep(0.1)
                             print(f"[INFO] Learned click: Zone {i+1} -> {best_match['text']}")
                         except Exception as e:
                             print(f"[WARNING] Click error (learned): {e}")
                 
                 if clicks_k > 0:
-                     self.browser.sleep(0.1)
                      self._click_check_button()
-                     self.browser.sleep(0.2)
+                     self._wait_for_modal_ready()
                      # Learn again to reinforce/update
                      self.learn_from_mistake(question_text, full_context_sig, image_id)
                      self._click_ok_modal()
-                     self.browser.sleep(self.delay)
+                     
                      return True
             
             # Construir texto de items para el prompt
@@ -2871,6 +3137,11 @@ Instrucciones:
 
 Respuesta:"""
             
+            # Verificar timeout antes de llamar a Gemini
+            if _is_timed_out():
+                print(f"[SAFETY] solve_image_drag_match excedió {max_duration}s. Saliendo...")
+                return False
+            
             # 4. Decidir si usar imagen o solo texto
             if num_images > 0:
                 print("[INFO] Usando modelo avanzado (Pro) para mayor precisión visual en matching...")
@@ -2891,10 +3162,16 @@ Respuesta:"""
                             "data": base64.b64encode(part_bytes).decode()
                         })
                 
-                response = self.solver.advanced_model.generate_content(content_parts)
+                response = self.solver.advanced_model.generate_content(
+                    content_parts,
+                    request_options={"timeout": 90}
+                )
             else:
                 # Sin imágenes: solo texto (MÁS RÁPIDO)
-                response = self.solver.model.generate_content(prompt)
+                response = self.solver.model.generate_content(
+                    prompt,
+                    request_options={"timeout": 45}
+                )
             
             result = response.text.strip()
             print(f"[DEBUG] Gemini responde:\n{result}")
@@ -3001,7 +3278,7 @@ Respuesta:"""
                             # Mark as used locally
                             locally_used_opt_texts.add(best_match['text'].upper())
                             
-                            self.browser.sleep(0.2)
+                            self.browser.sleep(0.1)
                         except:
                             try:
                                 # Fallback: solo click en opción por texto
@@ -3015,18 +3292,17 @@ Respuesta:"""
             print(f"[INFO] Clicks realizados: {clicks_done}")
             
             # 6. Verificar si quedan zonas pendientes antes de hacer CHECK
-            self.browser.sleep(0.2) # Esperar a que la UI se actualice
+            self.browser.sleep(0.1) # Esperar a que la UI se actualice
             remaining_waiting = self.browser.page.query_selector_all("button:has-text('Waiting answer')")
             
             if len(remaining_waiting) == 0 and clicks_done > 0:
-                self.browser.sleep(0.1)
                 self._click_check_button()
-                self.browser.sleep(0.2) # Wait for animation
+                self._wait_for_modal_ready()
                 self.learn_from_mistake(question_text, full_context_sig)
                 self._click_ok_modal()
                 
                 print(f"[SUCCESS] Pregunta (image drag) respondida")
-                self.browser.sleep(self.delay)
+                
                 return True
             else:
                 if len(remaining_waiting) > 0:
@@ -3042,12 +3318,28 @@ Respuesta:"""
 
     def solve_image_with_options(self, question_text: str) -> bool:
         """Resuelve preguntas con imagen + opciones simples (Male, Female, Both, etc.)."""
+        max_duration = 120
+        start_time = time.time()
+        
+        def _is_timed_out():
+            return time.time() - start_time > max_duration
+        
         try:
             print("[INFO] Resolviendo pregunta de imagen con opciones simples...")
             
-            # 1. Tomar screenshot
-            screenshot = self.browser.screenshot()
-            
+            # 1. Verificar si hay imagen relevante antes de tomar screenshot
+            has_image = self._has_relevant_images()
+            screenshot = None
+
+            if has_image:
+                screenshot = self.browser.screenshot()
+                if screenshot:
+                    print("[INFO] 📸 Screenshot capturado para análisis visual")
+                else:
+                    print("[INFO] ⚡ Falló captura de screenshot. Usando modo solo texto.")
+            else:
+                print("[INFO] ⚡ Sin imagen detectada. Usando modo solo texto.")
+
             # 2. Obtener todas las opciones disponibles
             buttons = self.browser.page.query_selector_all("button.rounded-xl, button.border-gray-300")
             options = []
@@ -3082,16 +3374,21 @@ Respuesta:"""
                             opt['element'].evaluate("el => el.click()")
                         except:
                             opt['element'].click()
-                        self.browser.sleep(0.1)
-                        self._click_check_button()
-                        self.browser.sleep(0.1)
-                        self.learn_from_mistake(question_text, full_context_sig)
-                        self._click_ok_modal()
-                        self.browser.sleep(self.delay)
-                        return True
+                self._click_check_button()
+                self._wait_for_modal_ready()
+                self.learn_from_mistake(question_text, full_context_sig)
+                self._click_ok_modal()
+                
+                return True
+            
+            # Verificar timeout antes de llamar a Gemini
+            if _is_timed_out():
+                print(f"[SAFETY] solve_image_with_options excedió {max_duration}s. Saliendo...")
+                return False
             
             # 3. Crear prompt para Gemini
-            prompt = f"""Analiza esta captura de pantalla.
+            if screenshot:
+                prompt = f"""Analiza esta captura de pantalla.
 
 PREGUNTA: {question_text}
 
@@ -3099,13 +3396,25 @@ OPCIONES DISPONIBLES: {options_str}
 
 Mira la imagen y lee el texto del anuncio cuidadosamente.
 Responde SOLO con la opción correcta exacta, nada más:"""
-            
-            image_part = {
-                "mime_type": "image/png",
-                "data": base64.b64encode(screenshot).decode()
-            }
-            
-            response = self.solver.model.generate_content([prompt, image_part])
+                image_part = {
+                    "mime_type": "image/png",
+                    "data": base64.b64encode(screenshot).decode()
+                }
+                response = self.solver.model.generate_content(
+                    [prompt, image_part],
+                    request_options={"timeout": 90}
+                )
+            else:
+                prompt = f"""PREGUNTA: {question_text}
+
+OPCIONES DISPONIBLES: {options_str}
+
+Analiza el texto de la pregunta y selecciona la opción correcta.
+Responde SOLO con la opción correcta exacta, nada más:"""
+                response = self.solver.model.generate_content(
+                    prompt,
+                    request_options={"timeout": 45}
+                )
             raw_answer = response.text.strip().split('\n')[0].strip()
             # Clean answer of lists/markdown
             answer = re.sub(r'^[\d]+[\.)\-:\s]+', '', raw_answer)
@@ -3136,7 +3445,7 @@ Responde SOLO con la opción correcta exacta, nada más:"""
                 self._click_ok_modal()
                 
                 print(f"[SUCCESS] Pregunta (image with options) respondida")
-                self.browser.sleep(self.delay)
+                
                 return True
             else:
                 print(f"[WARNING] No se encontró match para '{answer}'")
@@ -3149,12 +3458,28 @@ Responde SOLO con la opción correcta exacta, nada más:"""
 
     def solve_matching_requirements(self, question_text: str) -> bool:
         """Resuelve preguntas de matching de vacantes con requisitos."""
+        max_duration = 120
+        start_time = time.time()
+        
+        def _is_timed_out():
+            return time.time() - start_time > max_duration
+        
         try:
             print("[INFO] Resolviendo matching de vacantes con requisitos...")
             
-            # 1. Tomar screenshot
-            screenshot = self.browser.screenshot()
-            
+            # 1. Verificar si hay imagen relevante antes de tomar screenshot
+            has_image = self._has_relevant_images()
+            screenshot = None
+
+            if has_image:
+                screenshot = self.browser.screenshot()
+                if screenshot:
+                    print("[INFO] 📸 Screenshot capturado para análisis visual")
+                else:
+                    print("[INFO] ⚡ Falló captura de screenshot. Usando modo solo texto.")
+            else:
+                print("[INFO] ⚡ Sin imagen detectada. Usando modo solo texto.")
+
             # 2. Buscar todas las secciones con formato "Label:" seguido de botones
             # Los contenedores son divs que tienen un span con ":" y luego botones
             all_sections = self.browser.page.query_selector_all("div.flex.flex-col.gap-2")
@@ -3226,27 +3551,32 @@ Responde SOLO con la opción correcta exacta, nada más:"""
                                                 btn_el.click()
                                             clicks_k += 1
                                             found_click = True
-                                            self.browser.sleep(0.2)
+                                            self.browser.sleep(0.1)
                                         except: pass
                                         break
                             if found_click: break
                 
                 if clicks_k > 0:
-                     self.browser.sleep(0.1)
                      self._click_check_button()
-                     self.browser.sleep(0.2)
+                     self._wait_for_modal_ready()
                      self.learn_from_mistake(question_text, full_context_sig)
                      self._click_ok_modal()
-                     self.browser.sleep(self.delay)
+                     
                      return True
             
-            # 3. Crear prompt para Gemini con la imagen
+            # Verificar timeout antes de llamar a Gemini
+            if _is_timed_out():
+                print(f"[SAFETY] solve_matching_requirements excedió {max_duration}s. Saliendo...")
+                return False
+            
+            # 3. Crear prompt para Gemini (con o sin imagen)
             all_options = set()
             for r in rows:
                 for btn_txt, _ in r['buttons']:
                     all_options.add(btn_txt)
             
-            prompt = f"""Mira este anuncio de trabajo y responde:
+            if screenshot:
+                prompt = f"""Mira este anuncio de trabajo y responde:
 
 {question_text}
 
@@ -3257,16 +3587,32 @@ Lee cuidadosamente el anuncio y busca la calificación/requisito para cada puest
 En la imagen dice algo como "Qualification: ..." al lado de cada puesto.
 
 Responde con una línea por puesto en formato "Puesto: Requisito":"""
-            
-            image_part = {
-                "mime_type": "image/png",
-                "data": base64.b64encode(screenshot).decode()
-            }
-            
-            response = self.solver.model.generate_content([prompt, image_part])
+                image_part = {
+                    "mime_type": "image/png",
+                    "data": base64.b64encode(screenshot).decode()
+                }
+                response = self.solver.model.generate_content(
+                    [prompt, image_part],
+                    request_options={"timeout": 90}
+                )
+            else:
+                prompt = f"""Matching de vacantes con requisitos:
+
+{question_text}
+
+PUESTOS: {', '.join([r['label'] for r in rows])}
+OPCIONES DE REQUISITOS: {', '.join(all_options)}
+
+Analiza el texto y asigna el requisito correcto a cada puesto.
+
+Responde con una línea por puesto en formato "Puesto: Requisito":"""
+                response = self.solver.model.generate_content(
+                    prompt,
+                    request_options={"timeout": 45}
+                )
             result = response.text.strip()
             print(f"[DEBUG] Gemini:\n{result}")
-            
+
             # 4. Parsear y hacer clicks rápidamente
             clicked = 0
             for line in result.split("\n"):
@@ -3288,7 +3634,7 @@ Responde con una línea por puesto en formato "Puesto: Requisito":"""
                                         except:
                                             btn_el.click()
                                         clicked += 1
-                                        self.browser.sleep(0.2)  # Más rápido
+                                        self.browser.sleep(0.1)  # Más rápido
                                     except:
                                         pass
                                     break
@@ -3297,14 +3643,13 @@ Responde con una línea por puesto en formato "Puesto: Requisito":"""
             print(f"[INFO] Seleccionados: {clicked} botones")
             
             # 5. CHECK
-            self.browser.sleep(0.1)
             self._click_check_button()
-            self.browser.sleep(0.1)
+            self._wait_for_modal_ready()
             self.learn_from_mistake(question_text, full_context_sig)
             self._click_ok_modal()
             
             print(f"[SUCCESS] Pregunta (matching requirements) respondida")
-            self.browser.sleep(self.delay)
+            
             return True
             
         except Exception as e:
@@ -3318,6 +3663,12 @@ Responde con una línea por puesto en formato "Puesto: Requisito":"""
         Extrae texto de items y opciones, y usa lógica 1-a-1.
         OPTIMIZADO: Re-busca opciones antes de cada click para evitar stale elements.
         """
+        max_duration = 120
+        start_time = time.time()
+        
+        def _is_timed_out():
+            return time.time() - start_time > max_duration
+        
         try:
             print("[INFO] Resolviendo pregunta de MATCHING DE TEXTO (1-a-1)...")
             
@@ -3333,7 +3684,7 @@ Responde con una línea por puesto en formato "Puesto: Requisito":"""
                         btn.click()
                         self.browser.sleep(0.1)
                     except: pass
-                self.browser.sleep(0.3)
+                self.browser.sleep(0.15)
                 # Re-obtener zonas después del reset
                 zone_elements = self.browser.page.query_selector_all("button:has-text('Waiting answer')")
                 print(f"[INFO] Después del reset: {len(zone_elements)} zonas pendientes")
@@ -3472,12 +3823,11 @@ Responde con una línea por puesto en formato "Puesto: Requisito":"""
                              except: pass
                 
                 if clicks_k > 0:
-                     self.browser.sleep(0.1)
                      self._click_check_button()
-                     self.browser.sleep(0.2)
+                     self._wait_for_modal_ready()
                      self.learn_from_mistake(question_text, full_context_sig)
                      self._click_ok_modal()
-                     self.browser.sleep(self.delay)
+                     
                      return True
 
             unique_options_str = ", ".join(set([o['text'] for o in initial_options]))
@@ -3507,8 +3857,16 @@ Instrucciones:
 
 Respuesta:"""
 
+            # Verificar timeout antes de llamar a Gemini
+            if _is_timed_out():
+                print(f"[SAFETY] solve_text_match excedió {max_duration}s. Saliendo...")
+                return False
+            
             # 5. Consultar a Gemini
-            response = self.solver.model.generate_content(prompt)
+            response = self.solver.model.generate_content(
+                prompt,
+                request_options={"timeout": 45}
+            )
             result = response.text.strip()
             print(f"[DEBUG] Gemini responde:\n{result}")
             
@@ -3582,23 +3940,22 @@ Respuesta:"""
             print(f"[INFO] Clicks realizados: {clicks_done}/{num_zones}")
             
             # 8. Verificar y hacer CHECK
-            self.browser.sleep(0.1)
             remaining = self.browser.page.query_selector_all("button:has-text('Waiting answer')")
             
             if len(remaining) == 0 and clicks_done > 0:
                 self._click_check_button()
-                self.browser.sleep(0.1)
+                self._wait_for_modal_ready()
                 self.learn_from_mistake(question_text, full_context_sig)
                 self._click_ok_modal()
                 print(f"[SUCCESS] Pregunta (text match) respondida")
             elif clicks_done > 0:
                 # Intentar CHECK de todos modos
                 self._click_check_button()
-                self.browser.sleep(0.1)
+                self._wait_for_modal_ready()
                 self.learn_from_mistake(question_text, full_context_sig)
                 self._click_ok_modal()
             
-            self.browser.sleep(self.delay)
+            
             return True
 
         except Exception as e:
@@ -3611,6 +3968,12 @@ Respuesta:"""
         Resuelve preguntas donde hay múltiples oraciones/bloques y cada una tiene sus propias opciones.
         Ejemplo: "CHOOSE THE BEST OPTION: HOLIDAY / VACATION"
         """
+        max_duration = 120
+        start_time = time.time()
+        
+        def _is_timed_out():
+            return time.time() - start_time > max_duration
+        
         try:
             print("[INFO] Resolviendo pregunta de OPCIÓN EN LÍNEA (Inline Choice)...")
             
@@ -3720,8 +4083,16 @@ Instrucciones:
                                 self.browser.sleep(0.1)
                             except: pass
             else:
+                # Verificar timeout antes de llamar a Gemini
+                if _is_timed_out():
+                    print(f"[SAFETY] solve_inline_choice excedió {max_duration}s. Saliendo...")
+                    return False
+                
                 # Use Gemini
-                response = self.solver.model.generate_content(prompt)
+                response = self.solver.model.generate_content(
+                    prompt,
+                    request_options={"timeout": 45}
+                )
                 result = response.text.strip()
                 print(f"[DEBUG] Gemini responde:\n{result}")
                 
@@ -3757,16 +4128,13 @@ Instrucciones:
                                     print(f"[WARNING] Falló click en {idx+1}")
             
             if clicks > 0:
-                self.browser.sleep(0.1)
                 self._click_check_button()
-                
-                # Try to learn if mistake happened
-                self.browser.sleep(0.2) # Wait for modal animation
+                self._wait_for_modal_ready()
                 self.learn_from_mistake(question_text, full_context_sig)
                 
                 self._click_ok_modal()
                 print(f"[SUCCESS] Pregunta (Inline Choice) respondida")
-                self.browser.sleep(self.delay)
+                
                 return True
                 
             return False
@@ -3783,6 +4151,12 @@ Instrucciones:
         comparando con el conocimiento aprendido. Si no coinciden, resetea
         y vuelve a llenar.
         """
+        max_duration = 120
+        start_time = time.time()
+        
+        def _is_timed_out():
+            return time.time() - start_time > max_duration
+        
         try:
             print("[INFO] Resolviendo pregunta de SENTENCE JOIN...")
             
@@ -3837,11 +4211,31 @@ Instrucciones:
             print(f"[DEBUG] Oraciones: {sentences}")
             print(f"[DEBUG] Respuestas actuales: {current_answers}")
             
+            # Verificar timeout antes de buscar conocimiento
+            if _is_timed_out():
+                print(f"[SAFETY] solve_sentence_join excedió {max_duration}s. Saliendo...")
+                return False
+            
             # 2. Buscar conocimiento aprendido
             # Usar las respuestas ACTUALES como parte de la signature (para que coincida con cómo se guardó)
             options_str = " | ".join(current_answers)
             full_context = f"TITLE: {breadcrumb} || OPTIONS: {options_str}"
             known_answers = self.try_solve_with_knowledge(question_text, full_context)
+            
+            # GUARD: Si no hay conocimiento aprendido, no debemos hacer CHECK ciegamente
+            # sobre respuestas pre-llenadas que no podemos verificar. En su lugar,
+            # reseteamos y delegamos a solve_text_match para que aprenda del intento.
+            if not known_answers:
+                print("[INFO] No hay conocimiento aprendido para verificar respuestas pre-llenadas. Reseteando...")
+                for btn in opt_btns:
+                    try:
+                        btn.click()
+                        self.browser.sleep(0.15)
+                    except:
+                        pass
+                self.browser.sleep(0.15)
+                print("[INFO] Delegando a solve_text_match para llenar y aprender...")
+                return self.solve_text_match(question_text)
             
             if known_answers:
                 print(f"[KNOWLEDGE] Respuestas aprendidas: {known_answers}")
@@ -3866,19 +4260,19 @@ Instrucciones:
                                 self.browser.sleep(0.15)
                             except: pass
                         
-                        self.browser.sleep(0.3)
+                        self.browser.sleep(0.15)
                         
                         # 5. Ahora hay Waiting answer - delegar a text_match
                         print("[INFO] Delegando a solve_text_match para re-llenar...")
                         return self.solve_text_match(question_text)
             
-            # 6. Hacer CHECK
+            # 6. Hacer CHECK (solo llegamos aquí si known_answers no es None)
             print("[INFO] Haciendo click en CHECK...")
             self._click_check_button()
-            self.browser.sleep(0.8)
+            self._wait_for_modal_ready()
             self.learn_from_mistake(question_text, full_context)
             self._click_ok_modal()
-            self.browser.sleep(self.delay)
+            
             return True
             
         except Exception as e:

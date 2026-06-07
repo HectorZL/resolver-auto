@@ -26,20 +26,68 @@ class ModuleNavigator:
         # Let's keep it here as a property or passed in init? 
         # The internal logic uses it. I'll define it here for now.
 
+    # ── Fallback selectors for login form detection ──────────────────────────────
+
+    _FALLBACK_EMAIL_SELECTORS = [
+        "input[name='email']",
+        "input[type='email']",
+        "input[id='username']",
+        "input[name='username']",
+        "input[id='email']",
+        "#username",
+        "#email",
+        "input[placeholder*='mail']",
+        "input[placeholder*='email']",
+        "input[placeholder*='usuario']",
+        "input[placeholder*='correo']",
+        "input[placeholder*='user']",
+        "input[autocomplete='username']",
+        "input[autocomplete='email']",
+    ]
+
+    _FALLBACK_PASSWORD_SELECTORS = [
+        "input[type='password']",
+        "#password",
+        "input[name='pass']",
+        "input[id='pass']",
+        "input[autocomplete='current-password']",
+    ]
+
+    _FALLBACK_LOGIN_BUTTON_SELECTORS = [
+        "button[type='submit']",
+        "input[type='submit']",
+        "button:has-text('Login')",
+        "button:has-text('Sign in')",
+        "button:has-text('Iniciar')",
+        "button:has-text('Entrar')",
+        "button:has-text('Ingresar')",
+        "button:has-text('Acceder')",
+        "button:has-text('Submit')",
+    ]
+
+    # ── Login ───────────────────────────────────────────────────────────────────
+
     def login(self) -> bool:
         """Realiza el login en la plataforma."""
         print("[INFO] Iniciando login...")
-        
+
         try:
             # Iniciar navegador
             self.browser.start()
-            
+
             # Ir a la página de login
             self.browser.goto(self.config["login_url"])
-            
+
             # Esperar que el formulario esté listo o detectar si ya está logueado
-            form_status = self.browser.wait_for_form_ready(SELECTORS["email_input"], timeout=30)
-            
+            try:
+                form_status = self.browser.wait_for_form_ready(
+                    SELECTORS["email_input"], timeout=30
+                )
+            except Exception as exc:
+                print(f"[ERROR] Error durante la espera del formulario: {exc}")
+                self._capture_login_screenshot()
+                return False
+
             if form_status == "logged_in":
                 # Ya está logueado, ir al dashboard
                 print("[INFO] Sesión activa detectada, saltando login...")
@@ -51,31 +99,128 @@ class ModuleNavigator:
                 self.browser.sleep(0.5)
                 self.browser.fill(SELECTORS["password_input"], self.config["password"])
                 self.browser.sleep(0.5)
-                
+
                 # Click en login
                 self.browser.click(SELECTORS["login_button"])
-                
+
                 # Esperar que cargue el dashboard
-                self.browser.sleep(3)
+                print("[INFO] Esperando redirección al dashboard...")
+                try:
+                    # Wait for either the book header or a button containing 'BOOK'
+                    self.browser.wait_for_selector(f"{SELECTORS['book_header']}, button:has-text('BOOK')", timeout=15000)
+                except Exception:
+                    pass
+                
+                self.browser.sleep(2)
                 self.browser.wait_for_load(timeout=10000)
             else:
-                print("[ERROR] No se pudo detectar formulario ni sesión activa")
-                return False
-            
+                # Timeout: formulario no detectado con el selector principal
+                print("[ERROR] Tiempo de espera agotado: no se encontró el formulario de login.")
+                self._capture_login_screenshot()
+                print("[INFO] Intentando detectar formulario con selectores alternativos...")
+
+                if not self._try_fallback_login():
+                    return False
+
             # Verificar que estamos logueados
             current_url = self.browser.page.url
             print(f"[DEBUG] URL después de login: {current_url}")
-            
+
             if self.browser.exists(SELECTORS["book_header"]) or "dashboard" in self.browser.page.url.lower():
                 print("[SUCCESS] Login exitoso!")
                 return True
             else:
                 print("[WARNING] Login posiblemente fallido, continuando...")
                 return True
-                
+
         except Exception as e:
             print(f"[ERROR] Error en login: {e}")
+            self._capture_login_screenshot()
+            # Diagnóstico de página
+            try:
+                html_preview = self.browser.page.content()[:500]
+                print(f"[DEBUG] HTML preview: {html_preview[:200]}...")
+                # Listar inputs disponibles
+                inputs = self.browser.page.evaluate("""() => {
+                    const inputs = document.querySelectorAll('input, button');
+                    return Array.from(inputs).map(el => ({
+                        tag: el.tagName,
+                        type: el.type || '',
+                        name: el.name || '',
+                        id: el.id || '',
+                        placeholder: el.placeholder || '',
+                        text: (el.innerText || '').substring(0, 50)
+                    }));
+                }""")
+                print(f"[DEBUG] Form inputs found: {inputs}")
+            except Exception as diag_err:
+                print(f"[DEBUG] No se pudo obtener diagnóstico: {diag_err}")
             return False
+
+    def _capture_login_screenshot(self) -> None:
+        """Toma una captura de pantalla de la página de login para diagnóstico."""
+        try:
+            self.browser.screenshot("login_error.png")
+            print("[INFO] Captura de pantalla guardada como 'login_error.png'")
+        except Exception as exc:
+            print(f"[WARNING] No se pudo tomar la captura de pantalla: {exc}")
+
+    def _try_fallback_login(self) -> bool:
+        """Intenta llenar el formulario de login con selectores alternativos.
+
+        Recorre listas de selectores candidatos para email, contraseña y
+        botón de envío. Si todos se encuentran, completa el formulario y
+        retorna True. En caso contrario retorna False.
+
+        Returns:
+            True si se logró enviar el formulario, False si no.
+        """
+        email_sel = self._find_first_visible(self._FALLBACK_EMAIL_SELECTORS)
+        if email_sel is None:
+            print("[ERROR] No se encontró ningún campo de email/usuario "
+                  "con selectores alternativos.")
+            return False
+
+        password_sel = self._find_first_visible(self._FALLBACK_PASSWORD_SELECTORS)
+        if password_sel is None:
+            print("[ERROR] No se encontró ningún campo de contraseña "
+                  "con selectores alternativos.")
+            return False
+
+        login_sel = self._find_first_visible(self._FALLBACK_LOGIN_BUTTON_SELECTORS)
+        if login_sel is None:
+            print("[ERROR] No se encontró ningún botón de login "
+                  "con selectores alternativos.")
+            return False
+
+        print(f"[INFO] Selectores alternativos encontrados: "
+              f"email='{email_sel}', password='{password_sel}', "
+              f"button='{login_sel}'")
+
+        self.browser.fill(email_sel, self.config["email"])
+        self.browser.sleep(0.5)
+        self.browser.fill(password_sel, self.config["password"])
+        self.browser.sleep(0.5)
+
+        try:
+            self.browser.click(login_sel)
+        except Exception as exc:
+            print(f"[ERROR] No se pudo hacer clic en el botón de login: {exc}")
+            return False
+
+        self.browser.sleep(3)
+        self.browser.wait_for_load(timeout=10000)
+        return True
+
+    def _find_first_visible(self, selectors: list) -> str | None:
+        """Retorna el primer selector de la lista que coincida con un elemento visible."""
+        for sel in selectors:
+            try:
+                if self.browser.page.query_selector(sel):
+                    return sel
+            except Exception:
+                continue
+        return None
 
     def check_and_restore_session(self) -> bool:
         """Verifica si la sesión se perdió (estamos en login) y reloguea."""
@@ -269,13 +414,29 @@ class ModuleNavigator:
                         # Check rapidly if this new book has incomplete modules
                         new_modules = self.browser.page.query_selector_all(SELECTORS["module_container"])
                         has_incomplete = False
-                        for m in new_modules:
+                        for idx_new, m in enumerate(new_modules):
                             t_el = m.query_selector(SELECTORS["module_title"])
                             if not t_el:
                                 for fallback in ["h2", "h3", "h1", "span"]:
                                     t_el = m.query_selector(fallback)
                                     if t_el and t_el.inner_text().strip(): break
-                            m_title = t_el.inner_text().strip() if t_el else ""
+                            raw_title = t_el.inner_text().strip() if t_el else ""
+                            m_title = raw_title
+                            
+                            # Duplicate naming logic
+                            count = 0
+                            for m_prev in new_modules[:idx_new+1]:
+                                t_prev_el = m_prev.query_selector(SELECTORS["module_title"])
+                                if not t_prev_el:
+                                    for fallback in ["h2", "h3", "h1", "span"]:
+                                        t_prev_el = m_prev.query_selector(fallback)
+                                        if t_prev_el and t_prev_el.inner_text().strip(): break
+                                t_prev = t_prev_el.inner_text().strip() if t_prev_el else ""
+                                if t_prev == raw_title: count += 1
+                            if count > 1: m_title = f"{raw_title} ({count})"
+
+                            if m_title in exclude_modules or raw_title in exclude_modules:
+                                continue
                             
                             # Skip widgets
                             if any(x in m_title.lower() for x in ["total progress", "navegación", "dashboard", "results from"]) or m_title.lower() in ["writing", "reading", "vocabulary", "grammar", "listening", "speaking"]:
@@ -566,42 +727,68 @@ class ModuleNavigator:
             pass
         return 0, 0
     
-    def has_next_question(self) -> bool:
-        """Verifica si hay otra pregunta disponible con reintentos y avanza si es necesario."""
-        print("[DEBUG] Verificando si hay siguiente pregunta...")
-        max_retries = 5
+    def advance_if_possible(self) -> bool:
+        """
+        Intenta avanzar manualmente si existe botón de 'Next'.
+        Retorna True si se hizo click en un botón de avance.
+        Esta función SOLO avanza, no detecta.
+        """
+        print("[NAV] Buscando botón de avance...")
+        next_selectors = [
+             "button[aria-label='Next']",
+             "button[data-action='next']",
+             "button.next-btn",
+             "div[title='Next']",
+             "i.fa-chevron-right",
+             "i.fa-arrow-right",
+             "button:has(i.fa-chevron-right)",
+             ".carousel-control-next",
+             "button:has-text('Next')",
+             "button:has-text('Continue')"
+        ]
         
-        # Intentar avanzar manualmente si existe botón de "Next" o flechas
-        try:
-            next_selectors = [
-                 "button[aria-label='Next']",
-                 "button[data-action='next']",
-                 "button.next-btn",
-                 "div[title='Next']",
-                 "i.fa-chevron-right",
-                 "i.fa-arrow-right",
-                 "button:has(i.fa-chevron-right)",
-                 ".carousel-control-next",
-                 # Specific to some platforms:
-                 "button:has-text('Next')",
-                 "button:has-text('Continue')"
-            ]
-            
-            for sel in next_selectors:
+        for sel in next_selectors:
+            try:
                 if self.browser.page.query_selector(sel):
                     if self.browser.page.is_visible(sel):
                         print(f"[NAV] Encontrado botón de avance '{sel}', haciendo click...")
                         self.browser.page.click(sel)
-                        self.browser.sleep(1.5)
-                        break
-        except Exception as e:
-            print(f"[WARNING] Error intentando avanzar: {e}")
-
-        for i in range(max_retries):
+                        # Esperar dinámicamente la carga tras el avance
+                        try:
+                            self.browser.page.wait_for_load_state("networkidle", timeout=5000)
+                        except:
+                            pass
+                        self.browser.sleep(0.2)
+                        return True
+            except Exception as e:
+                print(f"[WARNING] Error intentando avanzar con '{sel}': {e}")
+        
+        return False
+    
+    def has_next_question(self) -> bool:
+        """Verifica si hay otra pregunta disponible (SIN efectos secundarios)."""
+        print("[DEBUG] Verificando si hay siguiente pregunta...")
+        
+        # Primero, esperar dinámicamente que aparezca un elemento de pregunta
+        question_selectors = [
+            "h2.font-bold", "h2.text-xl", ".cardCheck", 
+            "input[type='text']", "[data-rbd-draggable-id]", 
+            "button:has-text('Waiting answer')"
+        ]
+        for qsel in question_selectors:
+            try:
+                self.browser.page.wait_for_selector(qsel, timeout=2000)
+                return True
+            except:
+                continue
+        
+        # Fallback: reintentar con sleeps cortos si el wait dinámico falló
+        for i in range(3):
             try:
                 # 1. Verificar visualmente elementos clave
-                if self.browser.page.query_selector("h2.font-bold, h2.text-xl, .cardCheck, input[type='text'], [data-rbd-draggable-id], button:has-text('Waiting answer')"):
-                    return True
+                for qsel in question_selectors:
+                    if self.browser.page.query_selector(qsel):
+                        return True
                 
                 # 2. Verificar progreso numérico
                 current, total = self.get_question_progress()
@@ -609,10 +796,12 @@ class ModuleNavigator:
                     print(f"[DEBUG] Progreso indica más preguntas: {current}/{total}")
                     return True
                 
-                # Si no encontramos nada, esperar y reintentar (la página podría estar cargando)
-                if i < max_retries - 1:
-                    self.browser.sleep(1.0)
-            
+                # 3. Verificar si la actividad está completa
+                if self.is_activity_complete():
+                    return False
+                
+                if i < 2:
+                    self.browser.sleep(0.3)
             except:
                 pass
         

@@ -1,0 +1,347 @@
+{
+   "abstract": {
+      "message": "Özet"
+   },
+   "add": {
+      "message": "Ekle"
+   },
+   "addPDFsIfAvailable": {
+      "message": "Varsa PDF'leri ekle"
+   },
+   "addReferencesTo": {
+      "message": "Kaynakları buraya ekle"
+   },
+   "addToMendeley": {
+      "message": "Mendeley'e ekle"
+   },
+   "adding": {
+      "message": "Ekleme..."
+   },
+   "appDesc": {
+      "message": "Mendeley Reference Manager; kitaplığınız için hızlı ve kolay referans ve PDF aktarımı sağlar."
+   },
+   "authorKeywords": {
+      "message": "Yazar anahtar sözcükleri"
+   },
+   "authors": {
+      "message": "Yazarlar"
+   },
+   "backToList": {
+      "message": "Listeye geri dön"
+   },
+   "bill": {
+      "message": "Tasarı"
+   },
+   "book": {
+      "message": "Kitap"
+   },
+   "bookSection": {
+      "message": "Kitap bölümü"
+   },
+   "cancelEdits": {
+      "message": "Değişiklikleri iptal et"
+   },
+   "cannotImportPdf": {
+      "message": "PDF içe aktarılamıyor"
+   },
+   "cantSignIn": {
+      "message": "Giriş yapamıyor musunuz?"
+   },
+   "case": {
+      "message": "Dava"
+   },
+   "chapter": {
+      "message": "Bölüm"
+   },
+   "checkingForPDF": {
+      "message": "PDF kontol ediliyor"
+   },
+   "city": {
+      "message": "Şehir"
+   },
+   "clearAll": {
+      "message": "Hepsini temizle"
+   },
+   "collections": {
+      "message": "Koleksiyonlar"
+   },
+   "computerProgram": {
+      "message": "Bilgisayar Programı"
+   },
+   "conferenceProceedings": {
+      "message": "Konferans bildirileri"
+   },
+   "dateAccessed": {
+      "message": "Erişilen tarih"
+   },
+   "day": {
+      "message": "Gün"
+   },
+   "department": {
+      "message": "Bölüm"
+   },
+   "detectedOnPage": {
+      "message": "sayfada tespit edildi"
+   },
+   "directors": {
+      "message": "Yönetmen"
+   },
+   "displayPopUp": {
+      "message": "PDF bir web sayfasında bulunduğunda 'PDF'i görüntüle' düğmesini görüntüle"
+   },
+   "distributor": {
+      "message": "Dağıtımcı"
+   },
+   "dontHaveAnAccount": {
+      "message": "Hesabınız yok mu?"
+   },
+   "editReference": {
+      "message": "referansı düzenle"
+   },
+   "edition": {
+      "message": "Basım"
+   },
+   "editors": {
+      "message": "Editörler"
+   },
+   "encyclopedia": {
+      "message": "Ansiklopedi"
+   },
+   "encyclopediaArticle": {
+      "message": "Ansiklopedi makalesi"
+   },
+   "enterAuthorsOnSeparateLines": {
+      "message": "Yazarları ayrı satırlarda girin"
+   },
+   "enterEditorsOnSeparateLines": {
+      "message": "Editörleri ayrı satırlarda girin"
+   },
+   "enterKeywordsSeparatedByCommas": {
+      "message": "Anahtar kelimeleri virgülle ayrılmış olarak girin"
+   },
+   "enterURLsOnSeparateLines": {
+      "message": "Web sitesi adreslerini (URL) ayrı satırlarda girin"
+   },
+   "film": {
+      "message": "Film"
+   },
+   "firstName": {
+      "message": "İsim"
+   },
+   "forMoreInformationPleaseReferToThe": {
+      "message": "daha fazla bilgi için lütfen"
+   },
+   "hearing": {
+      "message": "Duruşma"
+   },
+   "identifiers": {
+      "message": "Tanımlayıcılar"
+   },
+   "ifYouAreHavingIssuesUsingTheWebImporterYouCanContactUs": {
+      "message": "Web importer kullanımında sorun yaşıyorsanız bizimle iletişime geçebilirsiniz."
+   },
+   "institution": {
+      "message": "Kurum"
+   },
+   "inventors": {
+      "message": "Buluş sahibi"
+   },
+   "issue": {
+      "message": "Sayı"
+   },
+   "issuer": {
+      "message": "Veren kurum"
+   },
+   "journal": {
+      "message": "Dergi"
+   },
+   "journalArticle": {
+      "message": "Dergi makalesi"
+   },
+   "lastName": {
+      "message": "Soyad"
+   },
+   "legislativeBody": {
+      "message": "Yasama organı"
+   },
+   "magazineArticle": {
+      "message": "Magazin makalesi"
+   },
+   "mendeleyWebImporterCannotAccessLocalFilesOnYourComputer": {
+      "message": "Mendeley Web Importer bilgisayarınızdaki yerel dosyalara erişemez"
+   },
+   "month": {
+      "message": "Ay"
+   },
+   "more": {
+      "message": "daha"
+   },
+   "moreReferencesDetectedOnPage": {
+      "message": "sayfada 10 tane daha kaynak tespit edildi"
+   },
+   "myLibrary": {
+      "message": "Kütüphanem"
+   },
+   "newspaperArticle": {
+      "message": "Gazete makalesi"
+   },
+   "number": {
+      "message": "Numara"
+   },
+   "pages": {
+      "message": "Sayfalar"
+   },
+   "patent": {
+      "message": "Patent"
+   },
+   "pdfNotFound": {
+      "message": "PDF bulunamadı"
+   },
+   "pleaseDoNotCloseAnyExternalWindowsThatPopUpDuringTheSignInProcess": {
+      "message": "Hesabınıza bağlanırken açılan pencereleri lütfen kapatmayınız."
+   },
+   "privacyPolicy": {
+      "message": "gizlilik politikamıza bakın"
+   },
+   "privateGroups": {
+      "message": "Özel gruplar"
+   },
+   "publicGroups": {
+      "message": "Herkese açık gruplar"
+   },
+   "publication": {
+      "message": "Yayın"
+   },
+   "publicationDetails": {
+      "message": "Yayın detayları"
+   },
+   "publisher": {
+      "message": "Yayınevi"
+   },
+   "recentlyUsed": {
+      "message": "Yakın zamanda kullanılan"
+   },
+   "reference": {
+      "message": "kaynak"
+   },
+   "referenceType": {
+      "message": "Kaynak türü"
+   },
+   "references": {
+      "message": "kaynak"
+   },
+   "refreshing": {
+      "message": "Yenileniyor"
+   },
+   "releaseNotes": {
+      "message": "Sürüm notları"
+   },
+   "report": {
+      "message": "Rapor"
+   },
+   "reporter": {
+      "message": "Raportör"
+   },
+   "searchCollections": {
+      "message": "Koleksiyonlarda ara"
+   },
+   "searchCollectionsAndGroups": {
+      "message": "Koleksiyon ve gruplarda ara"
+   },
+   "searchGroups": {
+      "message": "Gruplarda ara"
+   },
+   "selectAll": {
+      "message": "Hepsini seç"
+   },
+   "sendFeedback": {
+      "message": "Yorum gönder"
+   },
+   "series": {
+      "message": "Seri"
+   },
+   "settings": {
+      "message": "Ayarlar"
+   },
+   "signIn": {
+      "message": "Giriş Yap"
+   },
+   "signOut": {
+      "message": "Çıkış yap"
+   },
+   "signingInToMendeleyWebImporter": {
+      "message": "Mendeley Web Importer hesabınıza giriş yapılıyor"
+   },
+   "source": {
+      "message": "Kaynak"
+   },
+   "statute": {
+      "message": "Kanun"
+   },
+   "statuteNumber": {
+      "message": "Kanun no"
+   },
+   "stillCheckingForPdf": {
+      "message": "Hala PDF'yi kontrol ediyor"
+   },
+   "submitATranslation": {
+      "message": "Bir çeviri gönderin"
+   },
+   "supportCenter": {
+      "message": "Destek merkezi"
+   },
+   "televisionBroadcast": {
+      "message": "Televizyon programı"
+   },
+   "thesis": {
+      "message": "Tez"
+   },
+   "thisExtensionUsesCookiesCollectsTechnicalAndUsageDataAndRequiresBrowserPermissionsToProvideServiceToYou": {
+      "message": "Bu uzantı çerez kullanır, teknik ve kullanım verilerini toplar ve size hizmet sağlamak için tarayıcı izinleri gerektirir."
+   },
+   "thisMayTakeAFewSeconds": {
+      "message": "Bu işlem birkaç dakika sürebilir."
+   },
+   "title": {
+      "message": "Başlık"
+   },
+   "unspecified": {
+      "message": "Tanımlanmamış"
+   },
+   "version": {
+      "message": "Versiyon"
+   },
+   "viewLibrary": {
+      "message": "Kütüphanemi aç"
+   },
+   "viewPDF": {
+      "message": "PDF'i görüntüle"
+   },
+   "viewPDFInLibrary": {
+      "message": "PDF'i kütüphanemde göster"
+   },
+   "viewReferenceInLibrary": {
+      "message": "Kaynağı kütüphanemde göster"
+   },
+   "volume": {
+      "message": "Cilt"
+   },
+   "webImporterHelpGuide": {
+      "message": "Web Importer yardım rehberi"
+   },
+   "webPage": {
+      "message": "Web sayfası"
+   },
+   "websites": {
+      "message": "Web siteleri"
+   },
+   "workingFromHomeWeCanGetMorePDFsForYouIfYourInstitutionHasRemoteAccessOptions": {
+      "message": "Evden mi çalışıyorsunuz? Eğer kurumunuzun uzaktan erişim opsiyonları mevcutsa size daha fazla PDF sunabiliriz."
+   },
+   "workingPaper": {
+      "message": "Çalışma kağıdı (working paper)"
+   },
+   "year": {
+      "message": "Yıl"
+   }
+}

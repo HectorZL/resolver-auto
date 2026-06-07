@@ -32,7 +32,7 @@ class ExamAgent:
         self.multi_agent_mode = coordinator is not None
         
         # Inicializar componentes base (pasar agent_id al navegador)
-        self.browser = BrowserController(headless=False, agent_id=self.agent_id)
+        self.browser = BrowserController(headless=self.config.get("headless", False), agent_id=self.agent_id)
         self.solver = GeminiSolver(api_key=self.config["gemini_api_key"])
         
         # Inicializar módulos de lógica
@@ -46,6 +46,8 @@ class ExamAgent:
         self.last_question_hash = None
         self.consecutive_repeats = 0
         self.current_activity_key = None
+        self.heartbeat_counter = 0
+        self.MAX_QUESTIONS_PER_ACTIVITY = 50  # Safety limit, never exceed this many questions per activity
         
         print(f"[INFO] {self.agent_id} inicializado (Multi-Agente: {self.multi_agent_mode})")
 
@@ -61,6 +63,35 @@ class ExamAgent:
     def _get_max_attempts(self, attempts_done: int) -> int:
         """Calcula los intentos máximos permitidos para una actividad."""
         return 5  # Permitir hasta 5 intentos
+
+    def _maybe_update_heartbeat(self, questions_done: int, questions_total: int,
+                                 force: bool = False) -> None:
+        """Actualiza el heartbeat cada 5 preguntas, o forzadamente si se requiere.
+
+        Reducir la frecuencia de escrituras en SQLite sin afectar la detección
+        de timeouts (el timeout es de 300s, un heartbeat cada 5 preguntas sobra).
+
+        Args:
+            questions_done: Preguntas procesadas hasta ahora.
+            questions_total: Total estimado de preguntas (o 10 por defecto).
+            force: Si es True, fuerza la actualización independientemente del contador.
+        """
+        if not self.multi_agent_mode or not self.current_activity_key:
+            return
+
+        if force:
+            self.coordinator.update_heartbeat(
+                self.agent_id, self.current_activity_key,
+                questions_done, questions_total
+            )
+            return
+
+        self.heartbeat_counter += 1
+        if self.heartbeat_counter % 5 == 0:
+            self.coordinator.update_heartbeat(
+                self.agent_id, self.current_activity_key,
+                questions_done, questions_total
+            )
 
     def solve_current_question(self) -> bool:
         """Resuelve la pregunta actual en pantalla detectando el tipo de pregunta."""
@@ -209,52 +240,71 @@ class ExamAgent:
                                    dashboard_url = dashboard_url.replace("/signin", "/dashboard")
 
                               self.browser.page.goto(dashboard_url)
-                              self.browser.sleep(5)
+                              self.browser.sleep(2)
                               processed_modules.clear()
                               continue 
                           except:
                               pass
 
-                     print(f"[{self.agent_id}] 💤 No se encontraron módulos incompletos. Esperando 30s...")
+                     print(f"[{self.agent_id}] 💤 No se encontraron módulos incompletos. Esperando 10s...")
                      processed_modules.clear()
                      skipped_activities_per_module.clear()
-                     self.browser.sleep(30)
+                     self.browser.sleep(10)
+                     self.browser.page.reload()
+                     self.browser.sleep(2)
                      continue
 
-                # Seleccionar un módulo y actividad válida
-                selected_module = None
-                selected_activity = None
-
+                # ── Recoger todas las actividades candidatas de todos los módulos ──
+                candidates = []
                 for mod in incomplete_modules:
                     m_key = mod['title']
                     if m_key not in skipped_activities_per_module:
                         skipped_activities_per_module[m_key] = set()
-                    
-                    # Buscar actividad
+
                     act = self.navigator.find_incomplete_activity(
                         mod["element"],
                         skip_activities=skipped_activities_per_module[m_key]
                     )
-                    
+
                     if not act:
                         print(f"[INFO] Módulo {mod['title']} ya no tiene actividades. Marcando procesado.")
                         processed_modules.add(mod['title'])
                         continue
-                    
+
                     if act.get("status") == "busy":
                         print(f"[{self.agent_id}] Módulo {mod['title']} ocupado. Probando siguiente...")
                         processed_modules.add(mod['title'])
                         continue
-                    
-                    # Encontramos trabajo!
-                    selected_module = mod
-                    selected_activity = act
-                    break
-                
-                if not selected_activity:
+
+                    candidates.append((mod, act))
+
+                if not candidates:
                     print(f"[{self.agent_id}] 💤 Todos los módulos incompletos están ocupados por otros agentes. Esperando 15s...")
                     self.browser.sleep(15)
+                    self.browser.page.reload()
+                    self.browser.sleep(2)
                     continue
+
+                # MULTI-AGENTE: Ordenar candidatos por prioridad del coordinador
+                # (menos preguntas primero = mayor velocidad de finalización)
+                if self.multi_agent_mode:
+                    try:
+                        available = self.coordinator.get_available_activities()
+                        priority_map = {key: idx for idx, key in enumerate(available)}
+
+                        def _candidate_priority(cand):
+                            mod, act = cand
+                            activity_key = f"{mod['title']}_{act['name']}"
+                            # Actividades conocidas → prioridad según índice;
+                            # desconocidas → al final de la lista
+                            return priority_map.get(activity_key, len(available))
+
+                        candidates.sort(key=_candidate_priority)
+                    except Exception as e:
+                        print(f"[WARNING] Error al ordenar por prioridad del coordinador: {e}")
+                        candidates.sort(key=lambda c: c[1].get('progress', 0), reverse=True)
+
+                selected_module, selected_activity = candidates[0]
 
                 # Proceder con la actividad encontrada
                 module = selected_module
@@ -332,23 +382,61 @@ class ExamAgent:
                 
                 # Esperar carga
                 self.browser.sleep(2)
+
+                # Detectar número total de preguntas de la actividad
+                questions_current, questions_total = self.navigator.get_question_progress()
+                actual_total = questions_total if questions_total > 0 else 10
+                print(f"[INFO] Actividad '{activity['name']}' iniciada. "
+                      f"Preguntas: {questions_current}/{actual_total}")
+
+                # MULTI-AGENTE: Heartbeat forzado al iniciar actividad con conteo real
+                if self.multi_agent_mode and self.current_activity_key:
+                    self._maybe_update_heartbeat(questions_current, actual_total, force=True)
                 
                 # Resolver preguntas
                 questions_in_activity = 0
                 stuck_counter = 0
+                max_questions = self.MAX_QUESTIONS_PER_ACTIVITY
+                question_start_time = time.time()
+                single_question_timeout = 120  # 2 min per question
+                
                 while not self.navigator.is_activity_complete():
+                    # SAFETY: Max questions per activity guard
+                    if questions_in_activity >= max_questions:
+                        print(f"[SAFETY] ⛔ Máximo de {max_questions} preguntas alcanzado para '{activity['name']}'. Saliendo...")
+                        self.solvers.flush_knowledge()
+                        break
+                    
+                    # SAFETY: Single question timeout guard
+                    elapsed_in_question = time.time() - question_start_time
+                    if elapsed_in_question > single_question_timeout:
+                        print(f"[SAFETY] ⏱️ Timeout de {single_question_timeout}s por pregunta alcanzado. Pasando a la siguiente...")
+                        question_start_time = time.time()  # Reset timer for next question
+                    
                     if not self.solve_current_question():
                         print("[WARNING] Problema resolviendo pregunta, intentando continuar...")
                         stuck_counter += 1
                         self.browser.sleep(2)
                         
+                        # MULTI-AGENTE: Heartbeat even on failure (cada 5 preguntas)
+                        if self.multi_agent_mode and self.current_activity_key:
+                            current, total = self.navigator.get_question_progress()
+                            self._maybe_update_heartbeat(
+                                current or questions_in_activity, total or 10
+                            )
+                        
                         # FALLBACK: Return to Dashboard if stuck
                         if stuck_counter >= 3:
                             print("[ERROR] Atascado en la misma pregunta 3 veces. Ejecutando FALLBACK a DASHBOARD...")
                             
-                            # MULTI-AGENTE: Liberar actividad antes de salir
+                            # MULTI-AGENTE: Heartbeat forzado antes de liberar (fin de actividad)
                             if self.multi_agent_mode and self.current_activity_key:
+                                self._maybe_update_heartbeat(
+                                    questions_in_activity, actual_total, force=True
+                                )
                                 self.coordinator.release_activity(self.agent_id, self.current_activity_key, "Atascado - fallback")
+                            
+                            self.solvers.flush_knowledge()
                             
                             try:
                                 # Start fresh
@@ -361,7 +449,7 @@ class ExamAgent:
                                     base_url = self.config["login_url"].replace("/signin", "/dashboard")
                                     self.browser.page.goto(base_url)
                                 
-                                self.browser.sleep(5)
+                                self.browser.sleep(2)
                                 stuck_counter = 0
                                 # Exit inner loop to re-scan modules
                                 break 
@@ -371,18 +459,34 @@ class ExamAgent:
                         stuck_counter = 0
                         questions_in_activity += 1
                         self.questions_answered += 1
+                        question_start_time = time.time()  # Reset timer for next question
                         
-                        # MULTI-AGENTE: Heartbeat para evitar timeout
+                        # MULTI-AGENTE: Heartbeat para evitar timeout (cada 5 preguntas)
                         if self.multi_agent_mode and self.current_activity_key:
                             current, total = self.navigator.get_question_progress()
-                            self.coordinator.update_heartbeat(self.agent_id, self.current_activity_key, 
-                                                             current or questions_in_activity, total or 10)
+                            self._maybe_update_heartbeat(
+                                current or questions_in_activity, total or 10
+                            )
+                    
+                    # Try to advance manually if there's a next button
+                    self.navigator.advance_if_possible()
                     
                     if not self.navigator.has_next_question():
                         break
                     
-                    self.browser.sleep(1)
+                    # Esperar brevemente a que la siguiente pregunta se renderice
+                    try:
+                        self.browser.page.wait_for_function(
+                            "() => document.querySelector('h2, .cardCheck, input[type=\"text\"], [data-rbd-droppable-id]') !== null",
+                            timeout=3000
+                        )
+                    except:
+                        self.browser.sleep(0.3)  # Fallback mínimo si falla la espera dinámica
                 
+                # MULTI-AGENTE: Heartbeat forzado al finalizar actividad
+                if self.multi_agent_mode and self.current_activity_key and questions_in_activity > 0:
+                    self._maybe_update_heartbeat(questions_in_activity, actual_total, force=True)
+
                 # MULTI-AGENTE: Solo registrar aprobación si REALMENTE se completó
                 is_success = self.navigator.is_activity_complete()
                 
@@ -401,6 +505,9 @@ class ExamAgent:
                         self.activity_attempts[activity_key]["completed"] = True
                     else:
                         print(f"[{self.agent_id}] Aprobación registrada: {approvals}/4 para {activity_key}")
+                
+                # Forzar escritura del conocimiento aprendido a disco
+                self.solvers.flush_knowledge()
                 
                 # Volver al dashboard y verificar
                 self.browser.sleep(2)
@@ -435,6 +542,13 @@ class ExamAgent:
                 except Exception as verify_err:
                     print(f"[WARNING] Error verificando progreso: {verify_err}")
                     print("[ERROR] Navegación falló. Forzando retorno al Dashboard para evitar bloqueo...")
+                    
+                    # MULTI-AGENTE: Heartbeat forzado antes de fallback (fin de actividad)
+                    if self.multi_agent_mode and self.current_activity_key:
+                        self._maybe_update_heartbeat(
+                            questions_in_activity, actual_total, force=True
+                        )
+                    
                     # Force redirect to dashboard to reset state
                     dashboard_url = self.config.get("dashboard_url", "https://aulaslenguas.utm.edu.ec:8443/dashboard")
                     if "/signin" in dashboard_url: # Handle incorrect default fallback if key missing
@@ -442,7 +556,7 @@ class ExamAgent:
                     
                     try:
                         self.browser.page.goto(dashboard_url)
-                        self.browser.sleep(5)
+                        self.browser.sleep(2)
                         print("[INFO] Redirección forzada al Dashboard completada.")
                     except:
                         print("[CRITICAL] No se pudo forzar el retorno al dashboard.")
@@ -458,11 +572,9 @@ class ExamAgent:
             import traceback
             traceback.print_exc()
         finally:
-            print("[INFO] El navegador permanecerá abierto")
-            # input("Presiona Enter para cerrar el navegador...") # REMOVED to prevent EOFError in subprocess
-            # self.browser.close() # Optional: decide if we want to close or keep open. User prefers open usually but for multi-agent maybe close?
-            # For now just keep open and do nothing, but don't block.
-            pass
+            if hasattr(self, 'browser'):
+                print(f"[{self.agent_id}] Liberando contexto del navegador...")
+                self.browser.close()
 
 
 if __name__ == "__main__":

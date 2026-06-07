@@ -1,0 +1,6 @@
+2026/06/07-12:20:03.173 40c8 Reusing MANIFEST C:\Users\jesuc\Documents\proyects\bot-exam\.browser_manager\browser_data\Default\EdgeCoupons/coupons_data.db/MANIFEST-000001
+2026/06/07-12:20:03.174 40c8 Recovering log #10
+2026/06/07-12:20:03.175 40c8 Reusing old log C:\Users\jesuc\Documents\proyects\bot-exam\.browser_manager\browser_data\Default\EdgeCoupons/coupons_data.db/000010.log 
+2026/06/07-12:20:03.246 dd0 Level-0 table #14: started
+2026/06/07-12:20:03.250 dd0 Level-0 table #14: 682791 bytes OK
+2026/06/07-12:20:03.254 dd0 Delete type=0 #10

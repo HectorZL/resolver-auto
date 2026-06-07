@@ -1,0 +1,5 @@
+2026/06/07-13:08:26.943 2f4c Creating DB C:\Users\jesuc\Documents\proyects\bot-exam\.browser_manager\browser_data_Verify-Fix\Default\EdgeCoupons/coupons_data.db since it was missing.
+2026/06/07-13:08:26.980 2f4c Reusing MANIFEST C:\Users\jesuc\Documents\proyects\bot-exam\.browser_manager\browser_data_Verify-Fix\Default\EdgeCoupons/coupons_data.db/MANIFEST-000001
+2026/06/07-13:08:27.232 29f0 Level-0 table #5: started
+2026/06/07-13:08:27.238 29f0 Level-0 table #5: 682665 bytes OK
+2026/06/07-13:08:27.241 29f0 Delete type=0 #3

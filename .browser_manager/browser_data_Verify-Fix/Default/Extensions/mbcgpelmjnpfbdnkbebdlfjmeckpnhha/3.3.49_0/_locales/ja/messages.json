@@ -1,0 +1,335 @@
+{
+   "abstract": {
+      "message": "概要"
+   },
+   "add": {
+      "message": "追加"
+   },
+   "addPDFsIfAvailable": {
+      "message": "可能であればPDFを追加"
+   },
+   "addReferencesTo": {
+      "message": "参照を追加"
+   },
+   "addToMendeley": {
+      "message": "Mendeleyに追加"
+   },
+   "adding": {
+      "message": "追加中…"
+   },
+   "appDesc": {
+      "message": "Mendeley Reference Managerライブラリの参照とPDFの高速で便利なインポート"
+   },
+   "authorKeywords": {
+      "message": "著者が付けたキーワード"
+   },
+   "authors": {
+      "message": "著者"
+   },
+   "backToList": {
+      "message": "リストに戻る"
+   },
+   "bill": {
+      "message": "法案"
+   },
+   "book": {
+      "message": "本"
+   },
+   "bookSection": {
+      "message": "章"
+   },
+   "cancelEdits": {
+      "message": "編集をキャンセル"
+   },
+   "cannotImportPdf": {
+      "message": "PDFをインポートできません"
+   },
+   "cantSignIn": {
+      "message": "サインインできませんか？"
+   },
+   "case": {
+      "message": "事件"
+   },
+   "chapter": {
+      "message": "章"
+   },
+   "checkingForPdf": {
+      "message": "PDF検索中…"
+   },
+   "city": {
+      "message": "街"
+   },
+   "clearAll": {
+      "message": "すべて消去"
+   },
+   "collections": {
+      "message": "フォルダ"
+   },
+   "computerProgram": {
+      "message": "プログラム"
+   },
+   "conferenceProceedings": {
+      "message": "プロシーディング"
+   },
+   "dateAccessed": {
+      "message": "アクセスした日付"
+   },
+   "day": {
+      "message": "日"
+   },
+   "department": {
+      "message": "部門"
+   },
+   "detectedOnPage": {
+      "message": "が検出されました"
+   },
+   "directors": {
+      "message": "監督"
+   },
+   "displayPopUp": {
+      "message": "ウェブサイトでPDFが見つかった場合は「PDFを見る」ボタンを表示する"
+   },
+   "distributor": {
+      "message": "配給元"
+   },
+   "dontHaveAnAccount": {
+      "message": "アカウントをお持ちでない場合"
+   },
+   "editReference": {
+      "message": "参照編集"
+   },
+   "edition": {
+      "message": "版"
+   },
+   "editors": {
+      "message": "編集者"
+   },
+   "encyclopedia": {
+      "message": "百科事典"
+   },
+   "encyclopediaArticle": {
+      "message": "百科事典記事"
+   },
+   "enterAuthorsOnSeparateLines": {
+      "message": "別の行に著者を入力"
+   },
+   "enterEditorsOnSeparateLines": {
+      "message": "別の行に編集者を入力"
+   },
+   "enterKeywordsSeparatedByCommas": {
+      "message": "キーワードを半角カンマで区切って入力してください"
+   },
+   "enterURLsOnSeparateLines": {
+      "message": "別の行にURLを入力"
+   },
+   "film": {
+      "message": "映画"
+   },
+   "firstName": {
+      "message": "名"
+   },
+   "forMoreInformationPleaseReferToThe": {
+      "message": "詳しくはプライバシーポリシーをご覧ください。"
+   },
+   "hearing": {
+      "message": "審問"
+   },
+   "identifiers": {
+      "message": "識別子"
+   },
+   "ifYouAreHavingIssuesUsingTheWebImporterYouCanContactUs": {
+      "message": "Web Importerの使用に問題がある場合はお問い合わせください。"
+   },
+   "institution": {
+      "message": "機関"
+   },
+   "inventors": {
+      "message": "考案者"
+   },
+   "issue": {
+      "message": "発行"
+   },
+   "issuer": {
+      "message": "発行元"
+   },
+   "journal": {
+      "message": "学術誌"
+   },
+   "journalArticle": {
+      "message": "学術論文"
+   },
+   "lastName": {
+      "message": "姓"
+   },
+   "legislativeBody": {
+      "message": "立法機関"
+   },
+   "magazineArticle": {
+      "message": "雑誌記事"
+   },
+   "mendeleyWebImporterCannotAccessLocalFilesOnYourComputer": {
+      "message": "Mendeley Web Importerはパソコン上のローカルファイルをアクセスできません"
+   },
+   "month": {
+      "message": "月"
+   },
+   "more": {
+      "message": "冊追加の"
+   },
+   "myLibrary": {
+      "message": "マイライブラリ"
+   },
+   "newspaperArticle": {
+      "message": "新聞記事"
+   },
+   "number": {
+      "message": "番号"
+   },
+   "pages": {
+      "message": "ページ"
+   },
+   "patent": {
+      "message": "特許"
+   },
+   "pdfNotFound": {
+      "message": "PDFが見つかりませんでした"
+   },
+   "pleaseDoNotCloseAnyExternalWindowsThatPopUpDuringTheSignInProcess": {
+      "message": "サインイン中にポップアップウィンドウが現れる場合は閉じないでください"
+   },
+   "privacyPolicy": {
+      "message": "プライバシーポリシー"
+   },
+   "privateGroups": {
+      "message": "プライベートグループ"
+   },
+   "publicGroups": {
+      "message": "公開グループ"
+   },
+   "publication": {
+      "message": "刊行"
+   },
+   "publicationDetails": {
+      "message": "刊行物詳細"
+   },
+   "publisher": {
+      "message": "出版社"
+   },
+   "recentlyUsed": {
+      "message": "最近選択された"
+   },
+   "reference": {
+      "message": "参照"
+   },
+   "referenceType": {
+      "message": "参照タイプ"
+   },
+   "references": {
+      "message": "参照"
+   },
+   "refreshing": {
+      "message": "更新中"
+   },
+   "releaseNotes": {
+      "message": "リリースノート"
+   },
+   "report": {
+      "message": "通報"
+   },
+   "reporter": {
+      "message": "報告者"
+   },
+   "searchCollections": {
+      "message": "フォルダを検索"
+   },
+   "searchCollectionsAndGroups": {
+      "message": "フォルダとグループを検索"
+   },
+   "searchGroups": {
+      "message": "グループを検索"
+   },
+   "selectAll": {
+      "message": "全て選択"
+   },
+   "sendFeedback": {
+      "message": "フィードバックを送信"
+   },
+   "series": {
+      "message": "シリーズ"
+   },
+   "settings": {
+      "message": "設定"
+   },
+   "signIn": {
+      "message": "サインイン"
+   },
+   "signOut": {
+      "message": "サインアウト"
+   },
+   "signingInToMendeleyWebImporter": {
+      "message": "Mendeley Web Importerサインイン中"
+   },
+   "source": {
+      "message": "出典"
+   },
+   "statute": {
+      "message": "法令"
+   },
+   "statuteNumber": {
+      "message": "法令番号"
+   },
+   "submitATranslation": {
+      "message": "翻訳を提出"
+   },
+   "supportCenter": {
+      "message": "サポートセンター"
+   },
+   "televisionBroadcast": {
+      "message": "テレビ放送"
+   },
+   "thesis": {
+      "message": "論文"
+   },
+   "thisExtensionUsesCookiesCollectsTechnicalAndUsageDataAndRequiresBrowserPermissionsToProvideServiceToYou": {
+      "message": "この拡張機能はクッキーを使用し、利用者の技術データ情報とアクセス状況データ情報を収集します。またご利用にあたりましてブラウザの権限許可が必要です。"
+   },
+   "thisMayTakeAFewSeconds": {
+      "message": "しばらくお待ちしてください"
+   },
+   "title": {
+      "message": "表題"
+   },
+   "unspecified": {
+      "message": "不特定"
+   },
+   "version": {
+      "message": "稿"
+   },
+   "viewLibrary": {
+      "message": "ライブラリを開く"
+   },
+   "viewPDF": {
+      "message": "PDFを見る"
+   },
+   "viewPdfInLibrary": {
+      "message": "ライブラリでPDFを開く"
+   },
+   "volume": {
+      "message": "巻"
+   },
+   "webImporterHelpGuide": {
+      "message": "Web Importerヘルプガイド"
+   },
+   "webPage": {
+      "message": "ウェブページ"
+   },
+   "websites": {
+      "message": "ウェブサイト"
+   },
+   "workingPaper": {
+      "message": "報告書"
+   },
+   "year": {
+      "message": "年"
+   }
+}

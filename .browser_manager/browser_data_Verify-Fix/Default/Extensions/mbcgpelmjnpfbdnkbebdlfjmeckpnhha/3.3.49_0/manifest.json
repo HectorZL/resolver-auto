@@ -1,0 +1,43 @@
+{
+   "action": {
+      "default_icon": "assets/logo48.png",
+      "default_title": "Mendeley Web Importer"
+   },
+   "background": {
+      "service_worker": "background.js"
+   },
+   "commands": {
+      "_execute_action": {
+         "suggested_key": {
+            "default": "Ctrl+Shift+L",
+            "mac": "Command+Shift+L"
+         }
+      }
+   },
+   "content_scripts": [ {
+      "js": [ "content.js" ],
+      "matches": [ "\u003Call_urls>" ]
+   } ],
+   "content_security_policy": {
+      "extension_pages": "script-src 'self'; object-src 'self'"
+   },
+   "default_locale": "en",
+   "description": "__MSG_appDesc__",
+   "host_permissions": [ "\u003Call_urls>" ],
+   "icons": {
+      "128": "assets/logo128.png",
+      "16": "assets/logo16.png",
+      "48": "assets/logo48.png"
+   },
+   "incognito": "split",
+   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0ASX51/JJ10EZdXXW93MvPCzqMRbMKfxEUtRUeThI7XIO2ZInWktLgSRpppiVkyArySd+oyzAQi7qumXFHZn6L2rBv1DjDqE4+W/4/QTx0wl5U7rcb/dny/24wQ8evuOL3u4+R70nLabIbyvOdzixPnQB+ums5VtXWbw1gsGoLypO/wqJnV5vOtyORYi40Z/BrlXr0uvSWvlDHXNRZLopvXs6uyF6Ahz8jBUSUkjf3YtCcKFHRuTQ87MUQ3FgDMB6GAoqhOK/WNqK1OAC0gRKmJ0Oo3UTtCfpm5nduJZpKmw/7llqIJ2hyFtMkKednH6wgMEkT+Acj1EZWEd/LoqEwIDAQAB",
+   "manifest_version": 3,
+   "name": "Mendeley Web Importer",
+   "permissions": [ "notifications", "scripting", "storage", "webRequest" ],
+   "update_url": "https://edge.microsoft.com/extensionwebstorebase/v1/crx",
+   "version": "3.3.49",
+   "web_accessible_resources": [ {
+      "matches": [ "\u003Call_urls>" ],
+      "resources": [ "index.html", "fonts/NexusSansWebPro-Bold.*", "fonts/NexusSansWebPro-Regular.*", "assets/logoTransparent.png" ]
+   } ]
+}

@@ -1,0 +1,338 @@
+{
+   "ID": {
+      "message": "5"
+   },
+   "Whichlanguageandcountryareyouprovidingtranslationfor": {
+      "message": "en"
+   },
+   "abstract": {
+      "message": "Abstract"
+   },
+   "add": {
+      "message": "Add"
+   },
+   "addPdfsIfAvailable": {
+      "message": "Add PDFs if available"
+   },
+   "addReferencesTo": {
+      "message": "Add references to"
+   },
+   "addToMendeley": {
+      "message": "Add to Mendeley"
+   },
+   "adding": {
+      "message": "Adding..."
+   },
+   "appDesc": {
+      "message": "Fast, convenient import of references and PDFs to your Mendeley Reference Manager library."
+   },
+   "authorKeywords": {
+      "message": "Author Keywords"
+   },
+   "authors": {
+      "message": "Authors"
+   },
+   "backToList": {
+      "message": "Back to list"
+   },
+   "bill": {
+      "message": "Bill"
+   },
+   "book": {
+      "message": "Book"
+   },
+   "bookSection": {
+      "message": "Book Section"
+   },
+   "cancelEdits": {
+      "message": "Cancel edits"
+   },
+   "cannotImportPdf": {
+      "message": "Cannot import PDF"
+   },
+   "cantSignIn": {
+      "message": "Can't sign in?"
+   },
+   "case": {
+      "message": "Case"
+   },
+   "chapter": {
+      "message": "Chapter"
+   },
+   "city": {
+      "message": "City"
+   },
+   "clearAll": {
+      "message": "Clear all"
+   },
+   "collections": {
+      "message": "Collections"
+   },
+   "computerProgram": {
+      "message": "Computer Program"
+   },
+   "conferenceProceedings": {
+      "message": "Conference Proceedings"
+   },
+   "dateAccessed": {
+      "message": "Date Accessed"
+   },
+   "day": {
+      "message": "Day"
+   },
+   "department": {
+      "message": "Department"
+   },
+   "detectedOnPage": {
+      "message": "detected on page"
+   },
+   "directors": {
+      "message": "Directors"
+   },
+   "displayPopUp": {
+      "message": "Display pop-up 'View PDF' button when PDF is located on a web page"
+   },
+   "distributor": {
+      "message": "Distributor"
+   },
+   "dontHaveAnAccount": {
+      "message": "Don't have an account?"
+   },
+   "editReference": {
+      "message": "Edit reference"
+   },
+   "edition": {
+      "message": "Edition"
+   },
+   "editors": {
+      "message": "Editors"
+   },
+   "encyclopedia": {
+      "message": "Encyclopedia"
+   },
+   "encyclopediaArticle": {
+      "message": "Encyclopedia Article"
+   },
+   "enterAuthorsOnSeparateLines": {
+      "message": "Enter authors on separate lines"
+   },
+   "enterEditorsOnSeparateLines": {
+      "message": "Enter editors on separate lines"
+   },
+   "enterKeywordsSeparatedByCommas": {
+      "message": "Enter keywords separated by commas"
+   },
+   "enterUrlsOnSeparateLines": {
+      "message": "Enter URLs on separate lines"
+   },
+   "film": {
+      "message": "Film"
+   },
+   "firstName": {
+      "message": "First name"
+   },
+   "forMoreInformationPleaseReferToThe": {
+      "message": "For more information, please refer to the"
+   },
+   "hearing": {
+      "message": "Hearing"
+   },
+   "identifiers": {
+      "message": "Identifiers"
+   },
+   "ifYouAreHavingIssuesUsingTheWebImporterYouCanContactUs": {
+      "message": "If you are having issues using the Web Importer you can contact us"
+   },
+   "institution": {
+      "message": "Institution"
+   },
+   "inventors": {
+      "message": "Inventors"
+   },
+   "issue": {
+      "message": "Issue"
+   },
+   "issuer": {
+      "message": "Issuer"
+   },
+   "journal": {
+      "message": "Journal"
+   },
+   "journalArticle": {
+      "message": "Journal Article"
+   },
+   "lastName": {
+      "message": "Last name"
+   },
+   "legislativeBody": {
+      "message": "Legislative Body"
+   },
+   "magazineArticle": {
+      "message": "Magazine Article"
+   },
+   "mendeleyWebImporterCannotAccessLocalFilesOnYourComputer": {
+      "message": "Mendeley Web Importer cannot access local files on your computer"
+   },
+   "month": {
+      "message": "Month"
+   },
+   "more": {
+      "message": "more"
+   },
+   "myLibrary": {
+      "message": "My Library"
+   },
+   "newspaperArticle": {
+      "message": "Newspaper Article"
+   },
+   "number": {
+      "message": "Number"
+   },
+   "pages": {
+      "message": "Pages"
+   },
+   "patent": {
+      "message": "Patent"
+   },
+   "pdfNotFound": {
+      "message": "PDF not found"
+   },
+   "pleaseDoNotCloseAnyExternalWindowsThatPopUpDuringTheSignInProcess": {
+      "message": "Please do not close any external windows that pop up during the sign-in process."
+   },
+   "privacyPolicy": {
+      "message": "Privacy Policy"
+   },
+   "privateGroups": {
+      "message": "Private groups"
+   },
+   "publicGroups": {
+      "message": "Public groups"
+   },
+   "publication": {
+      "message": "Publication"
+   },
+   "publicationDetails": {
+      "message": "Publication details"
+   },
+   "publisher": {
+      "message": "Publisher"
+   },
+   "recentlyUsed": {
+      "message": "Recently used"
+   },
+   "reference": {
+      "message": "reference"
+   },
+   "referenceType": {
+      "message": "Reference type"
+   },
+   "references": {
+      "message": "references"
+   },
+   "refreshing": {
+      "message": "Refreshing"
+   },
+   "releaseNotes": {
+      "message": "Release notes"
+   },
+   "report": {
+      "message": "Report"
+   },
+   "reporter": {
+      "message": "Reporter"
+   },
+   "searchCollections": {
+      "message": "Search collections"
+   },
+   "searchCollectionsAndGroups": {
+      "message": "Search collections and groups"
+   },
+   "searchGroups": {
+      "message": "Search groups"
+   },
+   "selectAll": {
+      "message": "Select All"
+   },
+   "sendFeedback": {
+      "message": "Send feedback"
+   },
+   "series": {
+      "message": "Series"
+   },
+   "settings": {
+      "message": "Settings"
+   },
+   "signIn": {
+      "message": "Sign in"
+   },
+   "signOut": {
+      "message": "Sign out"
+   },
+   "signingInToMendeleyWebImporter": {
+      "message": "Signing in to Mendeley Web Importer"
+   },
+   "source": {
+      "message": "Source"
+   },
+   "statute": {
+      "message": "Statute"
+   },
+   "statuteNumber": {
+      "message": "Statute Number"
+   },
+   "stillCheckingForPdf": {
+      "message": "Still checking for PDF"
+   },
+   "supportCenter": {
+      "message": "Support Center"
+   },
+   "televisionBroadcast": {
+      "message": "Television Broadcast"
+   },
+   "thesis": {
+      "message": "Thesis"
+   },
+   "thisExtensionUsesCookiesCollectsTechnicalAndUsageDataAndRequiresBrowserPermissionsToProvideServiceToYou": {
+      "message": "This extension uses cookies, collects technical and usage data, and requires browser permissions to provide service to you."
+   },
+   "thisMayTakeAFewSeconds": {
+      "message": "This may take a few seconds."
+   },
+   "title": {
+      "message": "Title"
+   },
+   "unspecified": {
+      "message": "Unspecified"
+   },
+   "version": {
+      "message": "Version"
+   },
+   "viewLibrary": {
+      "message": "View Library"
+   },
+   "viewPdf": {
+      "message": "View PDF"
+   },
+   "viewPdfInLibrary": {
+      "message": "View PDF in library"
+   },
+   "volume": {
+      "message": "Volume"
+   },
+   "webImporterHelpGuide": {
+      "message": "Web Importer help guide"
+   },
+   "webPage": {
+      "message": "Web Page"
+   },
+   "websites": {
+      "message": "Websites"
+   },
+   "workingPaper": {
+      "message": "Working Paper"
+   },
+   "year": {
+      "message": "Year"
+   }
+}

@@ -15,8 +15,8 @@ from datetime import datetime
 import traceback
 
 # Patch asyncio para Playwright + Gemini
-# import nest_asyncio
-# nest_asyncio.apply()
+import nest_asyncio
+nest_asyncio.apply()
 
 def run_agent_process(agent_id: str, config_path: str, state_file: str, timeout_seconds: int):
     """
@@ -37,7 +37,18 @@ def run_agent_process(agent_id: str, config_path: str, state_file: str, timeout_
             
             # Crear coordinador (compartido mediante el archivo)
             coordinator = AgentCoordinator(state_file=state_file, timeout_seconds=timeout_seconds)
-            
+
+            # RECOVERY: Liberar actividades huérfanas de este agente tras un crash previo
+            try:
+                state = coordinator._read_state()
+                for activity_key, data in state.items():
+                    agents = data.get('agents', [])
+                    if isinstance(agents, list) and agent_id in agents:
+                        print(f"[RECOVERY] 🔄 Liberando claim huérfano de '{activity_key}'...")
+                        coordinator.release_activity(agent_id, activity_key, reason="Crash recovery")
+            except Exception as recovery_err:
+                print(f"[RECOVERY] Error menor en limpieza de actividades: {recovery_err}")
+
             # Crear agente con ID único
             agent = ExamAgent(config_path=config_path, agent_id=agent_id, coordinator=coordinator)
             
@@ -199,14 +210,14 @@ def main():
     # Iniciar thread de monitoreo de timeouts
     timeout_thread = threading.Thread(
         target=timeout_monitor,
-        args=(state_file, timeout_seconds, 30),  # Verificar cada 30 segundos
+        args=(state_file, timeout_seconds, 15),  # Verificar cada 15 segundos
         daemon=True  # Se cierra automáticamente cuando termina el programa
     )
     timeout_thread.start()
     
     print(f"\n[SUCCESS] ✅ {num_agents} agentes ejecutándose en paralelo!")
     print(f"[INFO] Estado disponible en: {state_file}")
-    print(f"[INFO] Monitor de timeouts activo (verifica cada 30s)")
+    print(f"[INFO] Monitor de timeouts activo (verifica cada 15s)")
     print(f"[INFO] Presiona Ctrl+C para detener todos los agentes\n")
     
     try:
@@ -233,6 +244,16 @@ def main():
         
         print("[INFO] Todos los agentes detenidos")
     
+    # ── Limpieza del navegador compartido ──────────────────────────────
+    # Si los agentes fueron terminados (no cerraron contextos),
+    # forzamos el cierre del navegador Edge.
+    try:
+        from browser_controller import kill_edge_processes
+        kill_edge_processes()
+        print("[INFO] Navegador Edge cerrado.")
+    except Exception as cleanup_err:
+        print(f"[WARNING] Error en limpieza del navegador: {cleanup_err}")
+
     print(f"\n[INFO] Sistema multi-agente finalizado")
     print(f"[INFO] Revisa el estado final en: {state_file}\n")
 

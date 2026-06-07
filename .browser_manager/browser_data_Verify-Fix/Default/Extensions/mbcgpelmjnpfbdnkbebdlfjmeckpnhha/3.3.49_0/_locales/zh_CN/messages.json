@@ -1,0 +1,332 @@
+{
+   "abstract": {
+      "message": "概述"
+   },
+   "add": {
+      "message": "添加"
+   },
+   "addPdfsIfAvailable": {
+      "message": "添加PDF（当可用时）"
+   },
+   "addReferencesTo": {
+      "message": "添加到收藏"
+   },
+   "addToMendeley": {
+      "message": "添加到图书馆"
+   },
+   "adding": {
+      "message": "添加中…"
+   },
+   "appDesc": {
+      "message": "方便、快捷地将参考文献和PDF导入到Mendeley 引文管理工具库"
+   },
+   "authorKeywords": {
+      "message": "作者关键词"
+   },
+   "authors": {
+      "message": "作者"
+   },
+   "backToList": {
+      "message": "返回列表"
+   },
+   "bill": {
+      "message": "法案"
+   },
+   "book": {
+      "message": "书"
+   },
+   "bookSection": {
+      "message": "章节"
+   },
+   "cancelEdits": {
+      "message": "取消编辑"
+   },
+   "cannotImportPdf": {
+      "message": "无法导入PDF"
+   },
+   "cantSignIn": {
+      "message": "无法登录？"
+   },
+   "case": {
+      "message": "案件"
+   },
+   "chapter": {
+      "message": "章节"
+   },
+   "checkingForPdf": {
+      "message": "检查PDF是否可用"
+   },
+   "city": {
+      "message": "城市"
+   },
+   "clearAll": {
+      "message": "清除全部"
+   },
+   "collections": {
+      "message": "已收藏的"
+   },
+   "computerProgram": {
+      "message": "计算机程序"
+   },
+   "conferenceProceedings": {
+      "message": "会议记录"
+   },
+   "dateAccessed": {
+      "message": "访问日期"
+   },
+   "day": {
+      "message": "日"
+   },
+   "department": {
+      "message": "部门"
+   },
+   "detectedOnPage": {
+      "message": "在页面上检测到"
+   },
+   "directors": {
+      "message": "导演"
+   },
+   "displayPopUp": {
+      "message": "当检索到PDF全文的时候，会弹出消息显示查看PDF按钮"
+   },
+   "distributor": {
+      "message": "发行人"
+   },
+   "dontHaveAnAccount": {
+      "message": "还没有账户？"
+   },
+   "editReference": {
+      "message": "编辑参考"
+   },
+   "edition": {
+      "message": "版本"
+   },
+   "editors": {
+      "message": "编辑"
+   },
+   "encyclopedia": {
+      "message": "百科全书"
+   },
+   "encyclopediaArticle": {
+      "message": "百科全书"
+   },
+   "enterAuthorsOnSeparateLines": {
+      "message": "在单独的一行输入作者"
+   },
+   "enterEditorsOnSeparateLines": {
+      "message": "在单独的一行输入编辑"
+   },
+   "enterKeywordsSeparatedByCommas": {
+      "message": "以逗号分隔的关键词"
+   },
+   "enterURLsOnSeparateLines": {
+      "message": "在单独的一行输入链接地址 (URLs)"
+   },
+   "film": {
+      "message": "电影"
+   },
+   "firstName": {
+      "message": "名称"
+   },
+   "forMoreInformationPleaseReferToThe": {
+      "message": " 更多信息，请参考我们的"
+   },
+   "hearing": {
+      "message": "听证会"
+   },
+   "identifiers": {
+      "message": "识别码"
+   },
+   "ifYouAreHavingIssuesUsingTheWebImporterYouCanContactUs": {
+      "message": "如果您在使用Web Importer的过程中遇到问题，请联系我们。"
+   },
+   "institution": {
+      "message": "机构"
+   },
+   "inventors": {
+      "message": "发明家"
+   },
+   "issue": {
+      "message": "发行"
+   },
+   "issuer": {
+      "message": "发行人"
+   },
+   "journal": {
+      "message": "日志"
+   },
+   "journalArticle": {
+      "message": "日志"
+   },
+   "lastName": {
+      "message": "姓氏"
+   },
+   "legislativeBody": {
+      "message": "立法机关"
+   },
+   "magazineArticle": {
+      "message": "杂志"
+   },
+   "mendeleyWebImporterCannotAccessLocalFilesOnYourComputer": {
+      "message": "Mendeley Web Importer无法访问您计算机上的本地文件"
+   },
+   "month": {
+      "message": "月"
+   },
+   "more": {
+      "message": "更多"
+   },
+   "myLibrary": {
+      "message": "我的图书馆"
+   },
+   "newspaperArticle": {
+      "message": "新闻"
+   },
+   "number": {
+      "message": "数字"
+   },
+   "pages": {
+      "message": "页"
+   },
+   "patent": {
+      "message": "专利"
+   },
+   "pdfNotFound": {
+      "message": "找不到PDF文件"
+   },
+   "pleaseDoNotCloseAnyExternalWindowsThatPopUpDuringTheSignInProcess": {
+      "message": "请不要关闭任何在登录过程中弹出的窗口."
+   },
+   "privacyPolicy": {
+      "message": "隐私条款"
+   },
+   "privateGroups": {
+      "message": "个人收藏"
+   },
+   "publicGroups": {
+      "message": "公开的群组"
+   },
+   "publication": {
+      "message": "出版物"
+   },
+   "publicationDetails": {
+      "message": "出版物详情"
+   },
+   "publisher": {
+      "message": "出版商"
+   },
+   "recentlyUsed": {
+      "message": "最近使用"
+   },
+   "reference": {
+      "message": "参考"
+   },
+   "referenceType": {
+      "message": "参考类型"
+   },
+   "references": {
+      "message": "参考"
+   },
+   "refreshing": {
+      "message": "正在刷新"
+   },
+   "releaseNotes": {
+      "message": "发布记录"
+   },
+   "report": {
+      "message": "报告"
+   },
+   "reporter": {
+      "message": "记录者"
+   },
+   "searchCollections": {
+      "message": "搜索已收藏的"
+   },
+   "searchCollectionsAndGroups": {
+      "message": "收藏与群组"
+   },
+   "searchGroups": {
+      "message": "搜索群组"
+   },
+   "selectAll": {
+      "message": "全选"
+   },
+   "sendFeedback": {
+      "message": "发送反馈"
+   },
+   "series": {
+      "message": "系列"
+   },
+   "settings": {
+      "message": "设定"
+   },
+   "signIn": {
+      "message": "登录"
+   },
+   "signOut": {
+      "message": "登出"
+   },
+   "signingInToMendeleyWebImporter": {
+      "message": "登录Mendeley Web Importer"
+   },
+   "source": {
+      "message": "来源"
+   },
+   "statute": {
+      "message": "法令"
+   },
+   "statuteNumber": {
+      "message": "法规编号"
+   },
+   "supportCenter": {
+      "message": "支持中心"
+   },
+   "televisionBroadcast": {
+      "message": "电视广播"
+   },
+   "thesis": {
+      "message": "论文"
+   },
+   "thisExtensionUsesCookiesCollectsTechnicalAndUsageDataAndRequiresBrowserPermissionsToProvideServiceToYou": {
+      "message": "该扩展程序使用cookie，收集技术和使用数据，并且需要浏览器权限才能为您提供服务"
+   },
+   "thisMayTakeAFewSeconds": {
+      "message": "这可能会需要几秒钟的时间."
+   },
+   "title": {
+      "message": "标题"
+   },
+   "unspecified": {
+      "message": "未指定的"
+   },
+   "version": {
+      "message": "版本"
+   },
+   "viewLibrary": {
+      "message": "查看图书馆"
+   },
+   "viewPdf": {
+      "message": "查看PDF"
+   },
+   "viewPdfInLibrary": {
+      "message": "在图书馆中查看PDF"
+   },
+   "volume": {
+      "message": "数量"
+   },
+   "webImporterHelpGuide": {
+      "message": "Web Importer 助手"
+   },
+   "webPage": {
+      "message": "网页"
+   },
+   "websites": {
+      "message": "网页"
+   },
+   "workingPaper": {
+      "message": "工作文件"
+   },
+   "year": {
+      "message": "年"
+   }
+}

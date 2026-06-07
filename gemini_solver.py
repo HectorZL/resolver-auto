@@ -311,7 +311,7 @@ Si hay opciones o respuestas visibles, incluye cuál es la correcta.
 """
         
         # Agregar contexto de HTML (limitado para no exceder tokens)
-        html_truncated = html_content[:5000] if len(html_content) > 5000 else html_content
+        html_truncated = html_content[:2000]
         prompt += f"\n\nCÓDIGO HTML DE LA PÁGINA:\n```html\n{html_truncated}\n```"
         
         if question_text:

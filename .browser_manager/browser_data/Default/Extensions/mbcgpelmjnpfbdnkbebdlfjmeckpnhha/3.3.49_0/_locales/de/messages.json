@@ -1,0 +1,335 @@
+{
+   "abstract": {
+      "message": "Abstrakt"
+   },
+   "add": {
+      "message": "Hinzufügen"
+   },
+   "addPDFsIfAvailable": {
+      "message": "PDFs falls vorhanden hinzufügen"
+   },
+   "addReferencesTo": {
+      "message": "Einordnen"
+   },
+   "addToMendeley": {
+      "message": "Hinzufügen"
+   },
+   "adding": {
+      "message": "Hinzufügen…"
+   },
+   "appDesc": {
+      "message": "Schneller und bequemer Import von Referenzen und PDFs in Ihre Mendeley Reference Manager-Bibliothek"
+   },
+   "authorKeywords": {
+      "message": "Autorenschlüsselwörter"
+   },
+   "authors": {
+      "message": "Autoren"
+   },
+   "backToList": {
+      "message": "Zurück zur Liste"
+   },
+   "bill": {
+      "message": "Gesetzentwurf"
+   },
+   "book": {
+      "message": "Buch"
+   },
+   "bookSection": {
+      "message": "Buchausschnitt"
+   },
+   "cancelEdits": {
+      "message": "Änderungen verwerfen"
+   },
+   "cannotImportPdf": {
+      "message": "PDF kann nicht hinzugefügt werden"
+   },
+   "cantSignIn": {
+      "message": "Können Sie sich nicht anmelden?"
+   },
+   "case": {
+      "message": "Fall"
+   },
+   "chapter": {
+      "message": "Kapitel"
+   },
+   "checkingForPdf": {
+      "message": "Suche PDF..."
+   },
+   "city": {
+      "message": "Stadt"
+   },
+   "clearAll": {
+      "message": "Markierung für alle entfernen"
+   },
+   "collections": {
+      "message": "Sammlung"
+   },
+   "computerProgram": {
+      "message": "Computerprogramm"
+   },
+   "conferenceProceedings": {
+      "message": "Konferenzbericht"
+   },
+   "dateAccessed": {
+      "message": "Zugriffsdatum"
+   },
+   "day": {
+      "message": "Tag"
+   },
+   "department": {
+      "message": "Abteilung"
+   },
+   "detectedOnPage": {
+      "message": "auf dieser Seite gefunden"
+   },
+   "directors": {
+      "message": "Direktoren"
+   },
+   "displayPopUp": {
+      "message": "Eine 'PDF öffnen' Option wird angezeigt, falls auf der Webseite ein PDF zur Verfügung steht"
+   },
+   "distributor": {
+      "message": "Produzent"
+   },
+   "dontHaveAnAccount": {
+      "message": "Haben Sie noch keinen Account?"
+   },
+   "editReference": {
+      "message": "Referenz bearbeiten"
+   },
+   "edition": {
+      "message": "Ausgabe"
+   },
+   "editors": {
+      "message": "Editoren"
+   },
+   "encyclopedia": {
+      "message": "Enzyklopädie"
+   },
+   "encyclopediaArticle": {
+      "message": "Enzyklopädieartikel"
+   },
+   "enterAuthorsOnSeparateLines": {
+      "message": "Autoren zeilenweise eintragen"
+   },
+   "enterEditorsOnSeparateLines": {
+      "message": "Editoren zeilenweise eintragen"
+   },
+   "enterKeywordsSeparatedByCommas": {
+      "message": "Schlüsselwörter durch Kommata getrennt eingeben"
+   },
+   "enterURLsOnSeparateLines": {
+      "message": "URLs zeilenweise eintragen"
+   },
+   "film": {
+      "message": "Film"
+   },
+   "firstName": {
+      "message": "Vorname"
+   },
+   "forMoreInformationPleaseReferToThe": {
+      "message": "Für weitere Informationen, lesen Sie unsere"
+   },
+   "hearing": {
+      "message": "Anhörung"
+   },
+   "identifiers": {
+      "message": "Identifikatoren"
+   },
+   "ifYouAreHavingIssuesUsingTheWebImporterYouCanContactUs": {
+      "message": "Falls Sie Probleme mit dem Web Importer haben, können Sie uns kontaktieren."
+   },
+   "institution": {
+      "message": "Institut"
+   },
+   "inventors": {
+      "message": "Erfinder"
+   },
+   "issue": {
+      "message": "Ausgabe"
+   },
+   "issuer": {
+      "message": "Herausgeber"
+   },
+   "journal": {
+      "message": "Fachzeitschrift"
+   },
+   "journalArticle": {
+      "message": "Fachzeitschriftsartikel"
+   },
+   "lastName": {
+      "message": "Nachname"
+   },
+   "legislativeBody": {
+      "message": "Gesetzgebungsorgan"
+   },
+   "magazineArticle": {
+      "message": "Magazinartikel"
+   },
+   "mendeleyWebImporterCannotAccessLocalFilesOnYourComputer": {
+      "message": "Mendeley Web Importer kann nicht auf lokale Dateien zugreifen"
+   },
+   "month": {
+      "message": "Monat"
+   },
+   "more": {
+      "message": "weitere"
+   },
+   "myLibrary": {
+      "message": "Meine Bibliothek"
+   },
+   "newspaperArticle": {
+      "message": "Zeitungsartikel"
+   },
+   "number": {
+      "message": "Nummer"
+   },
+   "pages": {
+      "message": "Seiten"
+   },
+   "patent": {
+      "message": "Patent"
+   },
+   "pdfNotFound": {
+      "message": "PDF nicht gefunden"
+   },
+   "pleaseDoNotCloseAnyExternalWindowsThatPopUpDuringTheSignInProcess": {
+      "message": "Bitte schließen Sie keine Fenster, die sich während des Anmeldevorgangs öffnen."
+   },
+   "privacyPolicy": {
+      "message": "Datenschutzbestimmungen"
+   },
+   "privateGroups": {
+      "message": "Private Gruppe"
+   },
+   "publicGroups": {
+      "message": "Öffentliche Gruppe"
+   },
+   "publication": {
+      "message": "Veröffentlichung"
+   },
+   "publicationDetails": {
+      "message": "Veröffentlichungsdetails"
+   },
+   "publisher": {
+      "message": "Verlag"
+   },
+   "recentlyUsed": {
+      "message": "Kürzlich benutzt"
+   },
+   "reference": {
+      "message": "Referenz"
+   },
+   "referenceType": {
+      "message": "Referenztyp"
+   },
+   "references": {
+      "message": "Referenzen"
+   },
+   "refreshing": {
+      "message": "Aktualisieren"
+   },
+   "releaseNotes": {
+      "message": "Versionshinweise"
+   },
+   "report": {
+      "message": "Bericht"
+   },
+   "reporter": {
+      "message": "Berichter"
+   },
+   "searchCollections": {
+      "message": "Sammlungen durchsuchen"
+   },
+   "searchCollectionsAndGroups": {
+      "message": "Sammlungen und Gruppen durchsuchen"
+   },
+   "searchGroups": {
+      "message": "Gruppen durchsuchen"
+   },
+   "selectAll": {
+      "message": "Alle auswählen"
+   },
+   "sendFeedback": {
+      "message": "Feedback geben"
+   },
+   "series": {
+      "message": "Reihe"
+   },
+   "settings": {
+      "message": "Einstellungen"
+   },
+   "signIn": {
+      "message": "Anmelden"
+   },
+   "signOut": {
+      "message": "Abmelden"
+   },
+   "signingInToMendeleyWebImporter": {
+      "message": "Einloggen bei Mendeley Web Importer"
+   },
+   "source": {
+      "message": "Quelle"
+   },
+   "statute": {
+      "message": "Statutsnummer"
+   },
+   "statuteNumber": {
+      "message": "Statutsnummer"
+   },
+   "submitATranslation": {
+      "message": "Eine Übersetzung einreichen"
+   },
+   "supportCenter": {
+      "message": "Support Center"
+   },
+   "televisionBroadcast": {
+      "message": "Fernsehausstrahlung"
+   },
+   "thesis": {
+      "message": "These"
+   },
+   "thisExtensionUsesCookiesCollectsTechnicalAndUsageDataAndRequiresBrowserPermissionsToProvideServiceToYou": {
+      "message": "Diese Erweiterung benutzt Cookies, sammelt technische- und Benutzungsdaten und benötigt Browserberechtigungen, um zu funktionieren."
+   },
+   "thisMayTakeAFewSeconds": {
+      "message": "Dies kann einen Moment dauern."
+   },
+   "title": {
+      "message": "Titel"
+   },
+   "unspecified": {
+      "message": "Unbestimmt"
+   },
+   "version": {
+      "message": "Version"
+   },
+   "viewLibrary": {
+      "message": "Bibliothek anschauen"
+   },
+   "viewPDF": {
+      "message": "PDF öffnen"
+   },
+   "viewPDFInLibrary": {
+      "message": "PDF in Bibliothek anschauen"
+   },
+   "volume": {
+      "message": "Band"
+   },
+   "webImporterHelpGuide": {
+      "message": "Web Importer Hilfe Guide (Englisch)"
+   },
+   "webPage": {
+      "message": "Webseite"
+   },
+   "websites": {
+      "message": "Webseiten"
+   },
+   "workingPaper": {
+      "message": "Arbeitsdokument"
+   },
+   "year": {
+      "message": "Jahr"
+   }
+}
